@@ -17,8 +17,11 @@ class EpivizApiController {
 
   private $rowsQueryFormat;
   private $valsQueryFormat;
+  private $colsQueryFormat;
   private $db;
   private $tablesColumns = array();
+  private $minVal = null;
+  private $maxVal = null;
 
   public function __construct() {
     $this->rowsQueryFormat =
@@ -35,12 +38,15 @@ class EpivizApiController {
         .'(SELECT MAX(`index`) FROM `%1$s` WHERE %5$s AND `start` < :end2 AND `end` >= :start2) '
       .'ORDER BY `%1$s`.`index` ASC;';
 
+    $this->colsQueryFormat =
+      'SELECT %1$s FROM %2$s ORDER BY `id` ASC %3$s; ';
+
     $this->db = (new EpivizDatabase())->db();
   }
 
   private function getTableColumns($table_name) {
     if (!array_key_exists($table_name, $this->tablesColumns)) {
-      $rows = $this->db->query("SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_NAME`='$table_name';");
+      $rows = $this->db->query("SELECT `COLUMN_NAME` FROM `INFORMATION_SCHEMA`.`COLUMNS` WHERE `TABLE_SCHEMA` = '".Config::DATABASE."' AND `TABLE_NAME`='$table_name';");
       $columns = array();
       while (($r = ($rows->fetch(PDO::FETCH_NUM))) != false) {
         $columns[] = $r[0];
@@ -50,18 +56,17 @@ class EpivizApiController {
     return $this->tablesColumns[$table_name];
   }
 
-  public function getRows($start, $end, $partition, $metadata, $retrieve_index, $retrieve_end, $offset_location) {
-    /*echo json_encode(array(
-      'partition' => $partition,
-      'start' => $start,
-      'end' => $end,
-      'metadata' => $metadata,
-      'retrieve_index' => $retrieve_index,
-      'retrieve_end' => $retrieve_end,
-      'offset_location' => $offset_location
-    ));
-    return;*/
+  private function calcMinMaxVals() {
+    if ($this->minVal === null || $this->maxVal === null) {
+      $rows = $this->db->query('SELECT MIN(val), MAX(val) FROM `'.EpivizApiController::VALUES_TABLE.'`;');
+      if (($r = ($rows->fetch(PDO::FETCH_NUM))) != false) {
+        $this->minVal = 0 + $r[0];
+        $this->maxVal = 0 + $r[1];
+      }
+    }
+  }
 
+  public function getRows($start, $end, $partition, $metadata, $retrieve_index, $retrieve_end, $offset_location) {
     $retrieve_index = ($retrieve_index != 'false');
     $retrieve_end = ($retrieve_end != 'false');
     $offset_location = ($offset_location == 'true');
@@ -213,5 +218,96 @@ class EpivizApiController {
     echo json_encode($data);
   }
 
-  //public function getAnnotation
+  public function getMeasurements($max_count, $annotation) {
+    $annotation_cols = empty($annotation) ? null : explode(',', $annotation);
+    $max_count = empty($max_count) ? 0 : 0 + $max_count;
+
+    $fields = '`id`, `label`';
+    $annotation_index = 2;
+
+    $general_cols = array(
+      'id' => true,
+      'label' => true
+    );
+    $columns = $this->getTableColumns(EpivizApiController::COLS_TABLE);
+    if ($annotation_cols != null) {
+      $safe_annotation_cols = array();
+      foreach ($annotation_cols as $col) {
+        if (array_key_exists($col, $columns) && !array_key_exists($col, $general_cols)) {
+          $safe_annotation_cols[] = $col;
+        }
+      }
+      $annotation_cols = $safe_annotation_cols;
+    } else {
+      $annotation_cols = array();
+      foreach ($columns as $col => $_) {
+        if (!array_key_exists($col, $general_cols)) {
+          $annotation_cols[] = $col;
+        }
+      }
+    }
+
+    foreach ($annotation_cols as $col) {
+      $fields .= ', `' . $col . '`';
+    }
+
+    $sql = sprintf($this->colsQueryFormat,
+      $fields,
+      EpivizApiController::COLS_TABLE,
+      $max_count > 0 ? 'LIMIT '.$max_count : ''
+    );
+
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+
+    $this->calcMinMaxVals();
+    $columns = $this->getTableColumns(EpivizApiController::ROWS_TABLE);
+    $location_cols = array(
+      'index' => true,
+      'partition' => true,
+      'start' => true,
+      'end' => true
+    );
+    $metadata_cols = array();
+    foreach ($columns as $col => $_) {
+      if (!array_key_exists($col, $location_cols)) {
+        $metadata_cols[] = $col;
+      }
+    }
+
+    $result = array(
+      'id' => array(),
+      'name' => array(),
+      'type' => 'feature',
+      'datasourceId' => Config::DATASOURCE,
+      'datasourceGroup' => Config::DATASOURCE,
+      'defaultChartType' => '',
+      'annotation' => array(),
+      'minValue' => $this->minVal,
+      'maxValue' => $this->maxVal,
+      'metadata' => $metadata_cols
+    );
+
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
+      $result['id'][] = $r[0];
+      $result['name'][] = $r[1];
+      //$result['type'][] = 'feature'; // TODO: Decide depending on the structure of the database
+      //$result['datasourceId'][] = Config::DATASOURCE;
+      //$result['datasourceGroup'][] = Config::DATASOURCE;
+      //$result['defaultChartType'][] = '';
+
+      $anno = array();
+      $n = count($annotation_cols);
+      for ($i = 0; $i < $n; ++$i) {
+        $anno[$annotation_cols[$i]] = $r[$annotation_index + $i];
+      }
+
+      $result['annotation'][] = $anno;
+      //$result['minValue'][] = $this->minVal;
+      //$result['maxValue'][] = $this->maxVal;
+      //$result['metadata'][] = $metadata_cols;
+    }
+
+    echo json_encode($result);
+  }
 }
