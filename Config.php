@@ -12,7 +12,7 @@ class Config {
   const VERSION = 3;
   const DATASOURCE = "hmp";
 
-  const DATABASE = 'epiviz';
+  const DATABASE = 'epiviz.test_template';
   const SERVER = 'localhost';
   const USERNAME = 'root';
   const PASSWORD = 'tuculeana';
