@@ -66,13 +66,15 @@ class EpivizApiController {
     }
   }
 
-  public function getRows($start, $end, $partition, $metadata, $retrieve_index, $retrieve_end, $offset_location) {
-    $retrieve_index = ($retrieve_index != 'false');
-    $retrieve_end = ($retrieve_end != 'false');
-    $offset_location = ($offset_location == 'true');
-    $metadata_cols = empty($metadata) ? null : explode(',', $metadata);
-    $partition = empty($partition) ? null : $partition;
+  private function measurementExists($measurement) {
+    $sql = 'SELECT `id` FROM `'.EpivizApiController::COLS_TABLE.'` WHERE `id`=:measurement LIMIT 1;';
 
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute(array('measurement' => $measurement));
+    return !empty($stmt) && ($stmt->fetch(PDO::FETCH_NUM)) != false;
+  }
+
+  public function getRows($start, $end, $partition=null, $metadata=null, $retrieve_index=true, $retrieve_end=true, $offset_location=false) {
     $fields = '`index`, `start`';
     $metadata_cols_index = 2;
     if ($retrieve_end) { $fields .= ', `end`'; ++$metadata_cols_index; }
@@ -93,7 +95,7 @@ class EpivizApiController {
       'end' => $retrieve_end ? array() : null,
     );
 
-    // Compress the sent data so that the message is sent a faster over the internet
+    // Compress the sent data so that the message is sent a faster over the network
     $min_index = null;
     $last_start = null;
     $last_end = null;
@@ -105,30 +107,30 @@ class EpivizApiController {
       'end' => true
     );
     $columns = $this->getTableColumns(EpivizApiController::ROWS_TABLE);
-    if ($metadata_cols != null) {
+    if ($metadata != null) {
       $safe_metadata_cols = array();
-      foreach ($metadata_cols as $col) {
+      foreach ($metadata as $col) {
         if (array_key_exists($col, $columns) && !array_key_exists($col, $location_cols)) {
           $safe_metadata_cols[] = $col;
         }
       }
-      $metadata_cols = $safe_metadata_cols;
+      $metadata = $safe_metadata_cols;
     } else {
-      $metadata_cols = array();
+      $metadata = array();
       foreach ($columns as $col => $_) {
         if (!array_key_exists($col, $location_cols)) {
-          $metadata_cols[] = $col;
+          $metadata[] = $col;
         }
       }
     }
 
-    foreach ($metadata_cols as $col) {
+    foreach ($metadata as $col) {
       $fields .= ', `' . $col . '`';
     }
 
-    if (!empty($metadata_cols)) {
+    if (!empty($metadata)) {
       $values['metadata'] = array();
-      foreach ($metadata_cols as $col) {
+      foreach ($metadata as $col) {
         $values['metadata'][$col] = array();
       }
     }
@@ -162,9 +164,9 @@ class EpivizApiController {
 
       $values['start'][] = $start;
       if ($retrieve_end) { $values['end'][] = $end; }
-      if (!empty($metadata_cols)) {
+      if (!empty($metadata)) {
         $col_index = $metadata_cols_index;
-        foreach ($metadata_cols as $col) {
+        foreach ($metadata as $col) {
           $values['metadata'][$col][] = $r[$col_index++];
         }
       }
@@ -175,11 +177,17 @@ class EpivizApiController {
       'useOffset' => $offset_location
     );
 
-    echo json_encode($data);
+    return $data;
   }
 
   public function getValues($measurement, $start, $end, $partition) {
-    $partition = empty($partition) ? null : $partition;
+    if (!$this->measurementExists($measurement)) {
+      return array(
+        'globalStartIndex' => null,
+        'values' => null
+      );
+    }
+
     $params = array(
       'measurement' => $measurement,
       'start1' => $start,
@@ -215,13 +223,10 @@ class EpivizApiController {
     }
     $data['globalStartIndex'] = $min_index;
 
-    echo json_encode($data);
+    return $data;
   }
 
   public function getMeasurements($max_count, $annotation) {
-    $annotation_cols = empty($annotation) ? null : explode(',', $annotation);
-    $max_count = empty($max_count) ? 0 : 0 + $max_count;
-
     $fields = '`id`, `label`';
     $annotation_index = 2;
 
@@ -230,24 +235,24 @@ class EpivizApiController {
       'label' => true
     );
     $columns = $this->getTableColumns(EpivizApiController::COLS_TABLE);
-    if ($annotation_cols != null) {
+    if ($annotation != null) {
       $safe_annotation_cols = array();
-      foreach ($annotation_cols as $col) {
+      foreach ($annotation as $col) {
         if (array_key_exists($col, $columns) && !array_key_exists($col, $general_cols)) {
           $safe_annotation_cols[] = $col;
         }
       }
-      $annotation_cols = $safe_annotation_cols;
+      $annotation = $safe_annotation_cols;
     } else {
-      $annotation_cols = array();
+      $annotation = array();
       foreach ($columns as $col => $_) {
         if (!array_key_exists($col, $general_cols)) {
-          $annotation_cols[] = $col;
+          $annotation[] = $col;
         }
       }
     }
 
-    foreach ($annotation_cols as $col) {
+    foreach ($annotation as $col) {
       $fields .= ', `' . $col . '`';
     }
 
@@ -291,23 +296,20 @@ class EpivizApiController {
     while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
       $result['id'][] = $r[0];
       $result['name'][] = $r[1];
-      //$result['type'][] = 'feature'; // TODO: Decide depending on the structure of the database
-      //$result['datasourceId'][] = Config::DATASOURCE;
-      //$result['datasourceGroup'][] = Config::DATASOURCE;
-      //$result['defaultChartType'][] = '';
 
       $anno = array();
-      $n = count($annotation_cols);
+      $n = count($annotation);
       for ($i = 0; $i < $n; ++$i) {
-        $anno[$annotation_cols[$i]] = $r[$annotation_index + $i];
+        $anno[$annotation[$i]] = $r[$annotation_index + $i];
       }
 
       $result['annotation'][] = $anno;
-      //$result['minValue'][] = $this->minVal;
-      //$result['maxValue'][] = $this->maxVal;
-      //$result['metadata'][] = $metadata_cols;
     }
 
-    echo json_encode($result);
+    return $result;
+  }
+
+  public function getHierarchy($node_id, $depth, $selection, $order) {
+
   }
 }
