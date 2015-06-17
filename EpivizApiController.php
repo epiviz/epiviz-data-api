@@ -14,10 +14,13 @@ class EpivizApiController {
   const ROWS_TABLE = 'row_data';
   const VALUES_TABLE = 'values';
   const COLS_TABLE = 'col_data';
+  const HIERARCHY_TABLE = 'hierarchy';
+  const LEVELS_TABLE = 'levels';
 
   private $rowsQueryFormat;
   private $valsQueryFormat;
   private $colsQueryFormat;
+  private $hierarchyQueryFormat;
   private $db;
   private $tablesColumns = array();
   private $minVal = null;
@@ -40,6 +43,11 @@ class EpivizApiController {
 
     $this->colsQueryFormat =
       'SELECT %1$s FROM %2$s ORDER BY `id` ASC %3$s; ';
+
+    $this->hierarchyQueryFormat =
+      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy` '
+      .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `lineage` LIKE :nodeid AND `%1$s`.`depth` <= :maxdepth '
+      .'ORDER BY `depth`, `partition`, `start`, `end`;';
 
     $this->db = (new EpivizDatabase())->db();
   }
@@ -309,7 +317,47 @@ class EpivizApiController {
     return $result;
   }
 
-  public function getHierarchy($node_id, $depth, $selection, $order) {
+  public function getHierarchy($depth, $node_id=null, $selection=null, $order=null) {
+    if ($node_id === null) { $node_id = '0-0'; }
+    $node_depth = hexdec(explode('-', $node_id)[0]);
+    $max_depth = $node_depth + $depth;
+    $sql = sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE);
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute(array(
+      'nodeid' => '%'.$node_id.'%',
+      'maxdepth' => $max_depth
+    ));
 
+    $root = null;
+    $node_map = array();
+    $i = 0;
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
+      $node = array(
+        'id' => $r[0],
+        'name' => $r[1],
+        'globalDepth' => 0 + $r[2],
+        'depth' => 0 + $r[2],
+        'taxonomy' => $r[9],
+        'parentId' => $r[3],
+        'nchildren' => 0 + $r[8],
+        'size' => 1,
+        'selectionType' => 1, // TODO Take selection and order into account
+        'nleaves' => (0 + $r[6]) - (0 + $r[5]),
+        'children' => array()
+      );
+      if ($node['id'] == $node_id) {
+        $root = $node;
+        $node_map[$node_id] = &$root;
+      } else {
+        $parent_id = $r[3];
+        $siblings = &$node_map[$parent_id]['children'];
+        $node_order = count($siblings);
+        $node['order'] = $node_order;
+        $siblings[] = $node;
+        $node_map[$node['id']] = &$siblings[$node_order];
+      }
+    }
+
+    return $root;
   }
 }

@@ -85,4 +85,26 @@ $req_controller->registerMethod(
   )
 );
 
+$req_controller->registerMethod(
+  'hierarchy',
+  array(
+    'depth' => 'number',
+    'nodeId' => array('type' => 'string', 'optional' => true, 'default' => null),
+    'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null)
+  ),
+  array(
+    'id' => 'string',
+    'name' => 'string',
+    'globalDepth' => 'number',
+    'depth' => 'number',
+    'taxonomy' => 'string',
+    // 'nchildren' => 'number',
+    'size' => 'number',
+    'selectionType' => 'number',
+    'nleaves' => 'number',
+    'children' => 'array'
+  ),
+  array($api_controller, 'getHierarchy'));
+
 $req_controller->handle($_REQUEST);
