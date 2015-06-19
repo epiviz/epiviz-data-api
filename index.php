@@ -5,9 +5,10 @@
  * Time: 8:17 PM
  */
 
-require_once('Config.php');
 require_once('util.php');
+require_once('Config.php');
 require_once('EpivizDatabase.php');
+require_once('SelectionType.php');
 require_once('EpivizApiController.php');
 require_once('EpivizRequestController.php');
 
@@ -108,3 +109,29 @@ $req_controller->registerMethod(
   array($api_controller, 'getHierarchy'));
 
 $req_controller->handle($_REQUEST);
+
+/*$n = array(
+  'order' => 0,
+  'children' => array(
+    array(
+      'order' => 2
+    ),
+    array(
+      'order' => 1
+    )
+  )
+);
+
+EpivizApiController::dfs($n, function(&$node) {
+  if (!array_key_exists('children', $node)) { return; }
+  $children = &$node['children'];
+  usort($children, function($c1, $c2) {
+    if (!array_key_exists('order', $c1)) { print_r($c1); }
+    if (!array_key_exists('order', $c2)) { print_r($c2); }
+    return $c1['order'] - $c2['order'];
+  });
+});
+
+print_r($n);
+
+*/

@@ -82,7 +82,22 @@ class EpivizApiController {
     return !empty($stmt) && ($stmt->fetch(PDO::FETCH_NUM)) != false;
   }
 
+  public static function dfs(&$node, $callback) {
+    if ($node === null) { return; }
+
+    $callback($node);
+
+    if (!array_key_exists('children', $node)) { return; }
+    $children = &$node['children'];
+
+    foreach ($children as $child) {
+      EpivizApiController::dfs($child, $callback);
+    }
+  }
+
   public function getRows($start, $end, $partition=null, $metadata=null, $retrieve_index=true, $retrieve_end=true, $offset_location=false) {
+    // TODO: Here is where we should also send the selection types and decide what values we're showing based on that
+    // TODO: Also, order comes into play here too
     $fields = '`index`, `start`';
     $metadata_cols_index = 2;
     if ($retrieve_end) { $fields .= ', `end`'; ++$metadata_cols_index; }
@@ -189,6 +204,8 @@ class EpivizApiController {
   }
 
   public function getValues($measurement, $start, $end, $partition) {
+    // TODO: Here is where we should also send the selection types and decide what values we're showing based on that
+    // TODO: Also, order comes into play here too
     if (!$this->measurementExists($measurement)) {
       return array(
         'globalStartIndex' => null,
@@ -341,22 +358,33 @@ class EpivizApiController {
         'parentId' => $r[3],
         'nchildren' => 0 + $r[8],
         'size' => 1,
-        'selectionType' => 1, // TODO Take selection and order into account
+        'selectionType' => idx($selection, $r[0], SelectionType::LEAVES),
         'nleaves' => (0 + $r[6]) - (0 + $r[5]),
+        'order' => null,
         'children' => array()
       );
+
       if ($node['id'] == $node_id) {
         $root = $node;
         $node_map[$node_id] = &$root;
       } else {
         $parent_id = $r[3];
         $siblings = &$node_map[$parent_id]['children'];
-        $node_order = count($siblings);
+        $node_index = count($siblings);
+        $node_order = idx($order, $node['id'], $node_index);
         $node['order'] = $node_order;
         $siblings[] = $node;
-        $node_map[$node['id']] = &$siblings[$node_order];
+        $node_map[$node['id']] = &$siblings[$node_index];
       }
     }
+
+    EpivizApiController::dfs($root, function(&$node) {
+      if (!array_key_exists('children', $node)) { return; }
+      $children = &$node['children'];
+      usort($children, function($c1, $c2) {
+        return $c1['order'] - $c2['order'];
+      });
+    });
 
     return $root;
   }

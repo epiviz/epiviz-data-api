@@ -6,11 +6,8 @@
  */
 
 
-function idx($arr, $key, $default = null) {
-  if (array_key_exists($key, $arr)) {
-    return $arr[$key];
-  }
-  return $default;
+function idx(&$arr, $key, $default = null) {
+  return ($arr === null || !is_array($arr) || !array_key_exists($key, $arr)) ? $default : $arr[$key];
 }
 
 function is_assoc($array) {
