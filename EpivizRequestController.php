@@ -106,21 +106,21 @@ class EpivizRequestController {
         }
         switch ($type) {
           case 'number':
-            if ($val !== null && !is_numeric($val)) { throw new Exception('Invalid value for parameter of type \'number\': \''.$name.'\' = \''.$json_val.'\'.'); }
+            if ($val !== null && !is_numeric($val)) { throw new Exception('Invalid value for parameter of type \'number\': \''.$name.'\' = '.$json_val.'.'); }
             $val = floatval($val);
             break;
           case 'string':
-            if ($val !== null && !is_string($val)) { throw new Exception('Invalid value for parameter of type \'string\': \''.$name.'\' = \''.$json_val.'\'.'); }
+            if ($val !== null && !is_string($val)) { throw new Exception('Invalid value for parameter of type \'string\': \''.$name.'\' = '.$json_val.'.'); }
             break;
           case 'boolean':
-            if ($val !== null && !is_bool($val)) { throw new Exception('Invalid value for parameter of type \'boolean\': \''.$name.'\' = \''.$json_val.'\'.'); }
+            if ($val !== null && !is_bool($val)) { throw new Exception('Invalid value for parameter of type \'boolean\': \''.$name.'\' = '.$json_val.'.'); }
             $val = boolval($val);
             break;
           case 'array':
-            if ($val !== null && (!is_array($val) || is_assoc($val))) { throw new Exception('Invalid value for parameter of type \'array\': \''.$name.'\' = \''.$json_val.'\'.'); }
+            if ($val !== null && (!is_array($val) || is_assoc($val))) { throw new Exception('Invalid value for parameter of type \'array\': \''.$name.'\' = '.$json_val.'.'); }
             break;
           case 'object':
-            if ($val !== null && (!is_array($val) || !is_assoc($val))) { throw new Exception('Invalid value for parameter of type \'object\': \''.$name.'\' = \''.$json_val.'\'.'); }
+            if ($val !== null && (!is_array($val) || !is_assoc($val))) { throw new Exception('Invalid value for parameter of type \'object\': \''.$name.'\' = '.$json_val.'.'); }
             break;
         }
 
