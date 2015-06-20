@@ -21,16 +21,22 @@ class EpivizApiController {
   private $valsQueryFormat;
   private $colsQueryFormat;
   private $hierarchyQueryFormat;
+  private $nodesQueryFormat;
+  private $nodesOrderBy;
   private $db;
   private $tablesColumns = array();
   private $minVal = null;
   private $maxVal = null;
 
   public function __construct() {
-    $this->rowsQueryFormat =
-      'SELECT %1$s FROM %2$s WHERE `index` BETWEEN '
-      .'(SELECT MIN(`index`) FROM %2$s WHERE %3$s AND `start` < :end1 AND `end` >= :start1) AND '
-      .'(SELECT MAX(`index`) FROM %2$s WHERE %4$s AND `start` < :end2 AND `end` >= :start2) ORDER BY `index` ASC; ';
+    $this->intervalQueryFormat = '(`index` BETWEEN '
+      .'(SELECT MIN(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?) AND '
+      .'(SELECT MAX(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?)) ';
+
+    $this->rowsQueryFormat = 'SELECT %1$s FROM %2$s WHERE %3$s ORDER BY `index` ASC ';
+//      'SELECT %1$s FROM %2$s WHERE `index` BETWEEN '
+//      .'(SELECT MIN(`index`) FROM %2$s WHERE %3$s AND `start` < :end1 AND `end` >= :start1) AND '
+//      .'(SELECT MAX(`index`) FROM %2$s WHERE %4$s AND `start` < :end2 AND `end` >= :start2) ORDER BY `index` ASC ';
 
     $this->valsQueryFormat =
       'SELECT `val`, `%1$s`.`index` FROM `%1$s` LEFT OUTER JOIN '
@@ -39,15 +45,20 @@ class EpivizApiController {
       .'WHERE `%1$s`.`index` BETWEEN '
         .'(SELECT MIN(`index`) FROM `%1$s` WHERE %4$s AND `start` < :end1 AND `end` >= :start1) AND '
         .'(SELECT MAX(`index`) FROM `%1$s` WHERE %5$s AND `start` < :end2 AND `end` >= :start2) '
-      .'ORDER BY `%1$s`.`index` ASC;';
+      .'ORDER BY `%1$s`.`index` ASC ';
 
     $this->colsQueryFormat =
-      'SELECT %1$s FROM %2$s ORDER BY `id` ASC %3$s; ';
+      'SELECT %1$s FROM %2$s ORDER BY `id` ASC %3$s ';
 
     $this->hierarchyQueryFormat =
-      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy` '
-      .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `lineage` LIKE :nodeid AND `%1$s`.`depth` <= :maxdepth '
-      .'ORDER BY `depth`, `partition`, `start`, `end`;';
+      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order` '
+      .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `lineage` LIKE ? AND `%1$s`.`depth` <= ? ';
+
+    $this->nodesQueryFormat =
+      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order` '
+      .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `id` IN (%3$s) ';
+
+    $this->nodesOrderBy = 'ORDER BY `depth`, `partition`, `start`, `end` ';
 
     $this->db = (new EpivizDatabase())->db();
   }
@@ -95,14 +106,115 @@ class EpivizApiController {
     }
   }
 
-  public function getRows($start, $end, $partition=null, $metadata=null, $retrieve_index=true, $retrieve_end=true, $offset_location=false) {
+  public function getNodes($node_ids) {
+    if (empty($node_ids)) { return array(); }
+
+    $in_query = implode(',', array_fill(0, count($node_ids), '?'));
+    $sql = sprintf($this->nodesQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE, $in_query).$this->nodesOrderBy;
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute($node_ids);
+
+    $nodes = array();
+
+    // `id`, `label`, `depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `taxonomy`, `leafIndex`, `nleaves`, `order`
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
+      $nodes[$r[0]] = array(
+        'id' => $r[0],
+        'name' => $r[1],
+        'globalDepth' => 0 + $r[2],
+        'depth' => 0 + $r[2],
+        'taxonomy' => $r[9],
+        'parentId' => $r[3],
+        'nchildren' => 0 + $r[8],
+        'size' => 1,
+        'start' => 0 + $r[5],
+        'end' => 0 + $r[6],
+        'leafIndex' => 0 + $r[10],
+        'nleaves' => 0 + $r[11],
+        'order' => 0 + $r[12]);
+    }
+
+    return $nodes;
+  }
+
+  public function getRows($start, $end, $partition=null, $metadata=null, $retrieve_index=true, $retrieve_end=true, $offset_location=false, $selection=null, $order=null) {
     // TODO: Here is where we should also send the selection types and decide what values we're showing based on that
     // TODO: Also, order comes into play here too
+    if ($selection === null) { $selection = array(); }
+    if ($order === null) { $order = array(); }
+
+    $node_ids = array_keys($selection + $order);
+    $nodes = $this->getNodes($node_ids);
+
+    // Selection
+
+    $selection_node_ids = array_keys($selection);
+    $selection_nodes = array();
+    foreach ($selection_node_ids as $node_id) {
+      // Discard nodes set to LEAVES
+      if (idx($selection, $node_id) === SelectionType::LEAVES) {
+        unset($selection[$node_id]);
+        continue;
+      }
+
+      $node = idx($nodes, $node_id);
+      if ($node === null || $node['end'] <= $start || $node['start'] >= $end) {
+        unset($selection[$node_id]);
+        continue;
+      }
+      $selection_nodes[$node_id] = $node;
+    }
+
+    // Discard nodes included in larger ranges of ancestors
+    uasort($selection_nodes, function(&$n1, &$n2) {
+      return $n1['start'] - $n2['start'];
+    });
+    $selection_node_ids = array_keys($selection_nodes);
+    $prev_node = null;
+    foreach ($selection_node_ids as $i => $node_id) {
+      $node = $selection_nodes[$node_id];
+      if ($prev_node === null) {
+        $prev_node = $node;
+        continue;
+      }
+      if ($prev_node['end'] >= $node['end']) {
+        unset($selection_nodes[$node_id]);
+        continue;
+      }
+
+      $prev_node = $node;
+    }
+
+    // Build correct select intervals
+    $cond = implode(' OR ', array_fill(0, 1+count($selection_nodes),
+      sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
+
+
+
+    // Get correct order of nodes in order map
+    /*$parent_ids = array();
+    foreach ($order as $node_id) {
+      $parent_ids[] = $nodes[$node_id]['parentId'];
+    }
+    $parents = $this->getHierarchies(1, $parent_ids, $order);
+    uasort($parents, function(&$n1, &$n2) {
+      return $n1['start'] - $n2['start'];
+    });
+    $ordered_nodes = array();
+    foreach ($parents as $parent) {
+      foreach ($parent['children'] as $node) {
+        $ordered_nodes[$node['id']] = $node;
+      }
+    }*/
+
+
+
+
     $fields = '`index`, `start`';
     $metadata_cols_index = 2;
     if ($retrieve_end) { $fields .= ', `end`'; ++$metadata_cols_index; }
 
-    $params = array(
+    /*$params = array(
       'start1' => $start,
       'start2' => $start,
       'end1' => $end,
@@ -110,7 +222,33 @@ class EpivizApiController {
     if ($partition != null) {
       $params['part1'] = $partition;
       $params['part2'] = $partition;
+    }*/
+    $params = array();
+    if ($partition != null) {
+      $params[] = $partition;
     }
+    $params[] = $start;
+    $last_end = $start;
+    foreach ($selection_nodes as $node) {
+      $params[] = $node['start'];
+      if ($partition != null) {
+        $params[] = $partition;
+      }
+      $params[] = $last_end;
+      $params[] = $node['start'];
+
+      if ($partition != null) {
+        $params[] = $partition;
+      }
+      $params[] = $node['end'];
+      $last_end = $node['end'];
+    }
+    $params[] = $end;
+    if ($partition != null) {
+      $params[] = $partition;
+    }
+    $params[] = $last_end;
+    $params[] = $end;
 
     $values = array(
       'index' => $retrieve_index ? array() : null,
@@ -161,9 +299,13 @@ class EpivizApiController {
     $sql = sprintf($this->rowsQueryFormat,
       $fields,
       EpivizApiController::ROWS_TABLE,
-      $partition == null ? '`partition` IS NULL' : '`partition` = :part1',
-      $partition == null ? '`partition` IS NULL' : '`partition` = :part2'
+      $cond
+      /*$partition == null ? '`partition` IS NULL' : '`partition` = :part1',
+      $partition == null ? '`partition` IS NULL' : '`partition` = :part2'*/
     );
+
+    print_r($sql);
+    print_r($params);
 
     $stmt = $this->db->prepare($sql);
     $stmt->execute($params);
@@ -338,16 +480,16 @@ class EpivizApiController {
     if ($node_id === null) { $node_id = '0-0'; }
     $node_depth = hexdec(explode('-', $node_id)[0]);
     $max_depth = $node_depth + $depth;
-    $sql = sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE);
+    $sql = sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE).$this->nodesOrderBy;
     $stmt = $this->db->prepare($sql);
     $stmt->execute(array(
-      'nodeid' => '%'.$node_id.'%',
-      'maxdepth' => $max_depth
+      '%'.$node_id.'%',
+      $max_depth
     ));
 
     $root = null;
     $node_map = array();
-    $i = 0;
+    // `id`, `label`, `depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `taxonomy`, `leafIndex`, `nleaves`, `order`
     while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
       $node = array(
         'id' => $r[0],
@@ -359,8 +501,11 @@ class EpivizApiController {
         'nchildren' => 0 + $r[8],
         'size' => 1,
         'selectionType' => idx($selection, $r[0], SelectionType::LEAVES),
-        'nleaves' => (0 + $r[6]) - (0 + $r[5]),
-        'order' => null,
+        'start' => 0 + $r[5],
+        'end' => 0 + $r[6],
+        'leafIndex' => 0 + $r[10],
+        'nleaves' => 0 + $r[11],
+        'order' => 0 + $r[12],
         'children' => array()
       );
 
@@ -370,22 +515,83 @@ class EpivizApiController {
       } else {
         $parent_id = $r[3];
         $siblings = &$node_map[$parent_id]['children'];
-        $node_index = count($siblings);
-        $node_order = idx($order, $node['id'], $node_index);
+        $node_order = idx($order, $node['id'], $node['order']);
         $node['order'] = $node_order;
         $siblings[] = $node;
-        $node_map[$node['id']] = &$siblings[$node_index];
+        $node_map[$node['id']] = &$siblings[count($siblings)-1];
       }
     }
 
     EpivizApiController::dfs($root, function(&$node) {
       if (!array_key_exists('children', $node)) { return; }
       $children = &$node['children'];
-      usort($children, function($c1, $c2) {
+      usort($children, function(&$c1, &$c2) {
         return $c1['order'] - $c2['order'];
       });
     });
 
     return $root;
+  }
+
+  public function getHierarchies($depth, $node_ids, $order=null) {
+    $max_depths = array_map(function($node_id) { return hexdec(explode('-', $node_id)[0]); }, $node_ids);
+    foreach ($max_depths as &$max_depth) { $max_depth += $depth; }
+    $sqls = array_fill(0, count($node_ids), sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE));
+    $sql = implode(' UNION ', $sqls).$this->nodesOrderBy;
+    $params = array();
+    foreach ($node_ids as $i => $node_id) {
+      $params[] = '%'.$node_id.'%';
+      $params[] = $max_depths[$i];
+    }
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute($params);
+
+    $node_map = array();
+    // `id`, `label`, `depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `taxonomy`, `leafIndex`, `nleaves`, `order`
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
+      $node_id = $r[0];
+      $node = array(
+        'id' => $node_id,
+        'name' => $r[1],
+        'globalDepth' => 0 + $r[2],
+        'depth' => 0 + $r[2],
+        'taxonomy' => $r[9],
+        'parentId' => $r[3],
+        'nchildren' => 0 + $r[8],
+        'size' => 1,
+        'selectionType' => idx($selection, $r[0], SelectionType::LEAVES),
+        'start' => 0 + $r[5],
+        'end' => 0 + $r[6],
+        'leafIndex' => 0 + $r[10],
+        'nleaves' => 0 + $r[11],
+        'order' => 0 + $r[12],
+        'children' => array()
+      );
+      $node_map[$node_id] = $node;
+
+      $parent_id = $node['parentId'];
+      if (array_key_exists($parent_id, $node_map)) {
+        $siblings = &$node_map[$parent_id]['children'];
+        $new_order = idx($order, $node_id, $node['order']);
+        $node_order = &$node_map[$node_id]['order'];
+        $node_order = $new_order;
+        $siblings[] = &$node_map[$node_id];
+      }
+    }
+
+    $ret = array();
+    foreach ($node_ids as $node_id) {
+      $node = &$node_map[$node_id];
+      EpivizApiController::dfs($node, function(&$node) {
+        if (!array_key_exists('children', $node)) { return; }
+        $children = &$node['children'];
+        usort($children, function(&$c1, &$c2) {
+          return $c1['order'] - $c2['order'];
+        });
+      });
+      $ret[$node_id] = $node;
+    }
+
+    return $ret;
   }
 }

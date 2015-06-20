@@ -21,6 +21,16 @@ $api_controller = new EpivizApiController();
 $req_controller = new \epiviz\api\EpivizRequestController($_REQUEST);
 
 $req_controller->registerMethod(
+  'nodes',
+  array('nodeIds' => 'array'),
+  'object',
+  array($api_controller, 'getNodes'),
+  array(
+    'request' => 'method=nodes&params[]=["1-0","1-1"]',
+    'response' => json_decode('{"1-0":{"id":"1-0","name":"Archaea","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":1,"size":1,"leafIndex":0,"nleaves":1},"1-1":{"id":"1-1","name":"Bacteria","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":34,"size":1,"leafIndex":1,"nleaves":14784}}')
+  ));
+
+$req_controller->registerMethod(
   'rows',
   array(
     'start' => 'number',
@@ -29,7 +39,9 @@ $req_controller->registerMethod(
     'metadata' => array('type' => 'array', 'optional' => true, 'default' => null),
     'retrieve_index' => array('type' => 'boolean', 'optional' => true, 'default' => true),
     'retrieve_end' => array('type' => 'boolean', 'optional' => true, 'default' => true),
-    'offset_location' => array('type' => 'boolean', 'optional' => true, 'default' => false)
+    'offset_location' => array('type' => 'boolean', 'optional' => true, 'default' => false),
+    'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null)
   ),
   array(
     'globalStartIndex' => 'number',
@@ -100,13 +112,23 @@ $req_controller->registerMethod(
     'globalDepth' => 'number',
     'depth' => 'number',
     'taxonomy' => 'string',
-    // 'nchildren' => 'number',
+    'nchildren' => 'number',
     'size' => 'number',
     'selectionType' => 'number',
     'nleaves' => 'number',
     'children' => 'array'
   ),
   array($api_controller, 'getHierarchy'));
+
+$req_controller->registerMethod(
+  'hierarchies',
+  array(
+    'depth' => 'number',
+    'nodeIds' => 'array',
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null)
+  ),
+  'object',
+  array($api_controller, 'getHierarchies'));
 
 $req_controller->handle($_REQUEST);
 
