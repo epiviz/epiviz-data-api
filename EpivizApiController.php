@@ -156,13 +156,10 @@ class EpivizApiController {
         unset($selection[$node_id]);
         continue;
       }
-
       $node = idx($nodes, $node_id);
-      if ($node === null || $node['end'] <= $start || $node['start'] >= $end) {
-        unset($selection[$node_id]);
-        continue;
+      if ($node !== null) {
+        $selection_nodes[$node_id] = $node;
       }
-      $selection_nodes[$node_id] = $node;
     }
 
     // Discard nodes included in larger ranges of ancestors
@@ -185,9 +182,37 @@ class EpivizApiController {
       $prev_node = $node;
     }
 
+    $cond_selection_nodes = array_filter($selection_nodes, function($node) use ($start, $end) {
+      return $node['start'] < $end && $node['end'] > $start;
+    });
+
     // Build correct select intervals
-    $cond = implode(' OR ', array_fill(0, 1+count($selection_nodes),
+    $cond = implode(' OR ', array_fill(0, 1+count($cond_selection_nodes),
       sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
+
+    // Compute updated indexes for selection nodes
+    $index_collapse = 0;
+    $start_index_collapse = null;
+    $selection_nodes_indexes = array();
+    foreach ($selection_nodes as $node_id => $node) {
+      /*if (idx($selection, $node_id) === SelectionType::NONE) {
+        $index_collapse += $node['nleaves'];
+        continue;
+      }*/
+      if ($node['end'] > $start) {
+        $selection_nodes_indexes[$node_id] = $node['leafIndex'] - $index_collapse;
+      }
+      if ($node['end'] > $start && $start_index_collapse === null) {
+        $start_index_collapse = $index_collapse;
+      }
+      $index_collapse += $node['nleaves'];
+      if (idx($selection, $node_id) === SelectionType::NODE) {
+        --$index_collapse;
+      }
+    }
+    /*print_r($selection_nodes);
+    print_r($selection_nodes_indexes);
+    print_r($start_index_collapse);*/
 
 
 
@@ -214,22 +239,13 @@ class EpivizApiController {
     $metadata_cols_index = 2;
     if ($retrieve_end) { $fields .= ', `end`'; ++$metadata_cols_index; }
 
-    /*$params = array(
-      'start1' => $start,
-      'start2' => $start,
-      'end1' => $end,
-      'end2' => $end);
-    if ($partition != null) {
-      $params['part1'] = $partition;
-      $params['part2'] = $partition;
-    }*/
     $params = array();
     if ($partition != null) {
       $params[] = $partition;
     }
     $params[] = $start;
     $last_end = $start;
-    foreach ($selection_nodes as $node) {
+    foreach ($cond_selection_nodes as $node) {
       $params[] = $node['start'];
       if ($partition != null) {
         $params[] = $partition;
@@ -300,28 +316,60 @@ class EpivizApiController {
       $fields,
       EpivizApiController::ROWS_TABLE,
       $cond
-      /*$partition == null ? '`partition` IS NULL' : '`partition` = :part1',
-      $partition == null ? '`partition` IS NULL' : '`partition` = :part2'*/
     );
-
-    print_r($sql);
-    print_r($params);
 
     $stmt = $this->db->prepare($sql);
     $stmt->execute($params);
 
-    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
-      if ($min_index === null) { $min_index = 0 + $r[0]; }
-      if ($retrieve_index) { $values['index'][] = 0 + $r[0]; }
+    $selection_node = null;
+    list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
+    $selection_node = idx($selection_nodes, $selection_node_id);
+    /*if ($selection_node_id !== null && $selection_node_index !== null) {
+      $selection_node = $selection_nodes[$selection_node_id];
+    }*/
+    $index_collapse = $start_index_collapse;
 
+    $last_start = 0;
+    $last_end = 0;
+
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
       $start = 0 + $r[1];
       $end = $retrieve_end ? 0 + $r[2] : null;
 
-      if ($offset_location) {
-        if ($last_start !== null) {
-          $start -= $last_start;
-          if ($retrieve_end) { $end -= $last_end; }
+      while ($selection_node !== null && $start >= $selection_node['end']) {
+        if (idx($selection, $selection_node_id) === SelectionType::NODE) {
+          $selection_node_start = $selection_node['start'];
+          $selection_node_end = $selection_node['end'];
+          if ($offset_location) {
+            $selection_node_start -= $last_start;
+            $last_start = $selection_node['start'];
+            $selection_node_end -= $last_end;
+            $last_end = $selection_node['end'];
+          }
+          $values['start'][] = $selection_node_start;
+          if ($retrieve_end) {
+            $values['end'][] = $selection_node_end;
+          }
+
+          $values['index'][] = $selection_node_index;
+          if (!empty($metadata)) {
+            foreach ($metadata as $col) {
+              $values['metadata'][$col][] = idx($selection_node, $col);
+            }
+          }
         }
+
+        list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
+        $selection_node = idx($selection_nodes, $selection_node_id);
+        $index_collapse = $selection_node['leafIndex'] - $selection_node_index;
+      }
+
+      if ($min_index === null) { $min_index = 0 + $r[0] - $index_collapse; }
+      if ($retrieve_index) { $values['index'][] = 0 + $r[0] - $index_collapse; }
+
+      if ($offset_location) {
+        $start -= $last_start;
+        if ($retrieve_end) { $end -= $last_end; }
 
         $last_start = 0 + $r[1];
         if ($retrieve_end) { $last_end = 0 + $r[2]; }
@@ -336,6 +384,32 @@ class EpivizApiController {
         }
       }
     }
+
+    while (list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes)) {
+      $selection_node = $selection_nodes[$selection_node_id];
+      if ($selection_node['start'] >= $end) { break; }
+
+      $selection_node_start = $selection_node['start'];
+      $selection_node_end = $selection_node['end'];
+      if ($offset_location) {
+        $selection_node_start -= $last_start;
+        $last_start = $selection_node['start'];
+        $selection_node_end -= $last_end;
+        $last_end = $selection_node['end'];
+      }
+      $values['start'][] = $selection_node_start;
+      if ($retrieve_end) {
+        $values['end'][] = $selection_node_end;
+      }
+
+      $values['index'][] = $selection_node_index;
+      if (!empty($metadata)) {
+        foreach ($metadata as $col) {
+          $values['metadata'][$col][] = idx($selection_node, $col);
+        }
+      }
+    }
+
     $data = array(
       'values' => $values,
       'globalStartIndex' => $min_index,
