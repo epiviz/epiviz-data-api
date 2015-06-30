@@ -10,10 +10,10 @@ namespace epiviz\api;
 
 class Config {
   const VERSION = 3;
-  const DATASOURCE = "";
+  const DATASOURCE = "hmp";
 
-  const DATABASE = '';
-  const SERVER = '';
-  const USERNAME = '';
-  const PASSWORD = '';
+  const DATABASE = 'epiviz.test_template';
+  const SERVER = 'localhost';
+  const USERNAME = 'root';
+  const PASSWORD = 'tuculeana';
 }

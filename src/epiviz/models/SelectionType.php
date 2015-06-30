@@ -5,7 +5,7 @@
  * Time: 11:33 AM
  */
 
-namespace epiviz\api;
+namespace epiviz\models;
 
 
 abstract class SelectionType {

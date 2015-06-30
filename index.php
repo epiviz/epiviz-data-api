@@ -5,12 +5,7 @@
  * Time: 8:17 PM
  */
 
-require_once('util.php');
-require_once('Config.php');
-require_once('EpivizDatabase.php');
-require_once('SelectionType.php');
-require_once('EpivizApiController.php');
-require_once('EpivizRequestController.php');
+require_once('autoload.php');
 
 use epiviz\api\EpivizApiController;
 
@@ -27,6 +22,16 @@ $req_controller->registerMethod(
   array($api_controller, 'getNodes'),
   array(
     'request' => 'method=nodes&params[]=["1-0","1-1"]',
+    'response' => json_decode('{"1-0":{"id":"1-0","name":"Archaea","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":1,"size":1,"leafIndex":0,"nleaves":1},"1-1":{"id":"1-1","name":"Bacteria","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":34,"size":1,"leafIndex":1,"nleaves":14784}}')
+  ));
+
+$req_controller->registerMethod(
+  'siblings',
+  array('nodeIds' => 'array'),
+  'object',
+  array($api_controller, 'getSiblings'),
+  array(
+    'request' => 'method=siblings&params[]=["1-0","2-26","0-0"]',
     'response' => json_decode('{"1-0":{"id":"1-0","name":"Archaea","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":1,"size":1,"leafIndex":0,"nleaves":1},"1-1":{"id":"1-1","name":"Bacteria","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":34,"size":1,"leafIndex":1,"nleaves":14784}}')
   ));
 
