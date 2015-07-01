@@ -15,7 +15,7 @@ class OrderedIntervalTreeTest {
   public function testBuildTreeHierarchy() {
 
     $order_nodes = array(
-      new Node('B', 'B', 6, null, 'C', 0, null, null, null, null, 9, 2, 0, null),
+      new Node('B', 'B', 6, null, 'C', 0, null, null, null, null, 9, 3, -1, null),
       new Node('C', 'C', 4, null, 'Z', 10, null, null, null, null, 4, 9, 0, null),
       new Node('G', 'G', 2, null, 'Q', 10, null, null, null, null, 28, 2, 0, null),
       new Node('A', 'A', 6, null, 'C', 10, null, null, null, null, 4, 2, 0, null),
@@ -25,7 +25,13 @@ class OrderedIntervalTreeTest {
     );
 
     $t = new OrderedIntervalTree($order_nodes);
-    print_r(json_encode($t->rawTree()));
+    //print_r(json_encode($t->rawOrderedIntervals()));
+    $intervals = array();
+    for ($i = 5; $i < 15; ++$i) {
+      $intervals[] = (object)array('start' => $i, 'end' => $i + 1);
+    }
+    print_r($intervals);
+    print_r($t->orderIntervals($intervals));
   }
 
   public function testBuildTreeIntervals() {
@@ -49,4 +55,5 @@ header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
 $testSuite = new OrderedIntervalTreeTest();
-$testSuite->testBuildTreeIntervals();
+//$testSuite->testBuildTreeIntervals();
+$testSuite->testBuildTreeHierarchy();

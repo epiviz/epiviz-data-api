@@ -43,7 +43,7 @@ function is_assoc(array &$array=null) {
  *
  * @param * $needle the value to be searched for
  * @param array $haystack the array to be searched
- * @param callable $cmp
+ * @param callable $cmp Returns <0 if needle < value, >0 if needle > value and 0 otherwise
  * @param int|null $from_index
  * @param int|null $to_index
  * @return int index of the search key, if it is contained in the array;
@@ -72,7 +72,7 @@ function binary_search($needle, array $haystack, callable $cmp = null, $from_ind
 
   while ($low <= $high) {
     $mid = ($low + $high) >> 1;
-    $test = $cmp($needle, $haystack[$mid]);
+    $test = $cmp($haystack[$mid]);
     if ($test > 0) {
       $low = $mid + 1;
     } else if ($test < 0) {
