@@ -68,7 +68,9 @@ $req_controller->registerMethod(
     'measurement' => 'string',
     'start' => 'number',
     'end' => 'number',
-    'partition' => array('type' => 'string', 'optional' => true, 'default' => null)
+    'partition' => array('type' => 'string', 'optional' => true, 'default' => null),
+    'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null)
   ),
   array(
     'globalStartIndex' => 'number',

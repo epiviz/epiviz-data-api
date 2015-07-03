@@ -7,7 +7,9 @@
 
 namespace epiviz\utils;
 
-use epiviz\models\Node;
+use epiviz\models\Interval;
+use epiviz\models\IntervalCollection;
+use epiviz\models\ReorderedIntervalCollection;
 use epiviz\utils\OrderedIntervalTree\IntervalNode;
 use epiviz\utils\OrderedIntervalTree\SimpleInterval;
 use epiviz\utils\OrderedIntervalTree\IntervalBoundary;
@@ -28,19 +30,9 @@ class OrderedIntervalTree {
   private $intervalRoot;
 
   /**
-   * @var IntervalNode
-   */
-  //private $orderedIntervalRoot;
-
-  /**
    * @var array
    */
   private $intervals;
-
-  /**
-   * @var array
-   */
-  //private $orderedIntervals;
 
   /**
    * @var bool
@@ -87,8 +79,8 @@ class OrderedIntervalTree {
       $val = $interval_boundaries[$i]->boundary;
       $interval_node = $node_stack[count($node_stack) - 1];
       if ($i == 0) {
-        $filler_node = new IntervalNode(null, $val);
-        $filler_node->parent = $interval_node;
+        $filler_node = new IntervalNode(null, $val, null, $interval_node);
+        //$filler_node->parent = $interval_node;
         $interval_node->children[] = $filler_node;
         $interval = new SimpleInterval(null, $val, $interval_node->children[0]);
       } else {
@@ -96,8 +88,8 @@ class OrderedIntervalTree {
           if ($interval_boundaries[$i]->intervalNode === $interval_boundaries[$i-1]->intervalNode) {
             $interval = new SimpleInterval($last_interval->end, $val, $interval_node);
           } else {
-            $filler_node = new IntervalNode($last_interval->end, $val);
-            $filler_node->parent = $interval_node;
+            $filler_node = new IntervalNode($last_interval->end, $val, null, $interval_node);
+            //$filler_node->parent = $interval_node;
             $interval_node->children[] = $filler_node;
             $interval = new SimpleInterval($last_interval->end, $val, $interval_node->children[count($interval_node->children) - 1]);
           }
@@ -124,20 +116,6 @@ class OrderedIntervalTree {
 
     $this->intervalRoot = $interval_root;
     $this->intervals = &$intervals;
-
-    // Looks like we will not need these
-    /*$this->orderedIntervalRoot = OrderedIntervalTree::copyIntervalHierarchy($interval_root);
-    $this->orderTreeNodes($this->orderedIntervalRoot);
-    $ordered_intervals = array();
-    $dfs = function(IntervalNode $node) use (&$dfs, &$ordered_intervals) {
-      if (empty($node->children)) {
-        $ordered_intervals[] = new SimpleInterval($node->start, $node->end, $node);
-        return;
-      }
-      array_walk($node->children, $dfs);
-    };
-    $dfs($this->orderedIntervalRoot);
-    $this->orderedIntervals = $ordered_intervals;*/
   }
 
   private static function orderTreeNodes(IntervalNode $root) {
@@ -195,7 +173,7 @@ class OrderedIntervalTree {
     return $copy;
   }
 
-  public function orderIntervals(array &$intervals) {
+  public function &orderIntervals(IntervalCollection $intervals) {
     if ($this->dirty) {
       // Clear indices in tree
       $dfs = null;
@@ -208,37 +186,39 @@ class OrderedIntervalTree {
     $this->dirty = true;
 
     $interval = null;
-    $find_node_container = function(IntervalNode $node) use (&$interval, &$find_node_container) {
-      if (($node->originalStart !== null && $node->originalStart > $interval->start) ||
-        ($node->originalEnd !== null && $node->originalEnd < $interval->end)) {
+    $find_node_container = function(IntervalNode $node, Interval $interval) use (&$find_node_container) {
+      if (($node->originalStart !== null && $node->originalStart > $interval->start()) ||
+        ($node->originalEnd !== null && $node->originalEnd < $interval->end())) {
         return null;
       }
       $ret = $node;
       $i = binary_search($interval, $node->children, function(IntervalNode $child) use (&$interval) {
-        if ($child->originalStart !== null && $interval->end <= $child->originalStart) { return -1; }
-        if ($child->originalEnd !== null && $interval->start >= $child->originalEnd) { return 1; }
+        if ($child->originalStart !== null && $interval->end() <= $child->originalStart) { return -1; }
+        if ($child->originalEnd !== null && $interval->start() >= $child->originalEnd) { return 1; }
 
         // Overlap
         return 0;
       });
       if ($i >= 0) {
-        $candidate = $find_node_container($node->children[$i]);
+        $candidate = $find_node_container($node->children[$i], $interval);
         if ($candidate !== null) { $ret = $candidate; }
       }
       return $ret;
     };
 
     $last_node = null;
-    foreach ($intervals as $index => $interval) {
+    $n = $intervals->count();
+    for ($i = 0; $i < $n; ++$i) {
+      $interval = $intervals->get($i);
       $node_container = null;
       if ($last_node !== null) {
-        $node_container = $find_node_container($last_node);
+        $node_container = $find_node_container($last_node, $interval);
       }
 
       if ($node_container === null) {
-        $node_container = $find_node_container($this->intervalRoot);
+        $node_container = $find_node_container($this->intervalRoot, $interval);
       }
-      $node_container->indices[] = $index;
+      $node_container->indices[] = $i;
     }
 
     //
@@ -255,13 +235,14 @@ class OrderedIntervalTree {
     $dfs($root);
     //
 
-    $ordered_intervals = array();
-    array_walk($ordered_interval_nodes, function(SimpleInterval $simple_interval) use (&$intervals, &$ordered_intervals) {
+    $ordered_indices = array();
+    array_walk($ordered_interval_nodes, function(SimpleInterval $simple_interval) use (&$ordered_indices) {
       foreach ($simple_interval->intervalNode->indices as $i) {
-        $ordered_intervals[] = &$intervals[$i];
+        $ordered_indices[] = $i;
       }
     });
-    return $ordered_intervals;
+    //return new ReorderedIntervalCollection($intervals, $ordered_indices);
+    return $ordered_indices;
   }
 
   public function rawTree() {
@@ -289,20 +270,11 @@ class OrderedIntervalTree {
     },
     $this->intervals);
   }
-
-  /*public function rawOrderedIntervals() {
-    return array_map(function($interval) {
-      return array(
-        'belongsTo' => $interval->intervalNode->data ? $interval->intervalNode->data->label : '$',
-        'start' => $interval->start,
-        'end' => $interval->end);
-    },
-    $this->orderedIntervals);
-  }*/
 }
 
 namespace epiviz\utils\OrderedIntervalTree;
 
+use epiviz\models\Interval;
 use epiviz\models\Node;
 
 /**
@@ -399,7 +371,7 @@ class IntervalBoundary {
   }
 }
 
-class SimpleInterval {
+class SimpleInterval implements Interval {
   /**
    * @var int
    */
@@ -420,9 +392,12 @@ class SimpleInterval {
    * @param int $end
    * @param IntervalNode $interval_node
    */
-  public function __construct($start, $end, IntervalNode $interval_node) {
+  public function __construct($start, $end, IntervalNode $interval_node=null) {
     $this->start = $start;
     $this->end = $end;
     $this->intervalNode = $interval_node;
   }
+
+  public function start() { return $this->start; }
+  public function end() { return $this->end; }
 }

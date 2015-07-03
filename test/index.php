@@ -10,6 +10,8 @@ namespace epiviz\utils;
 require_once('../autoload.php');
 
 use epiviz\models\Node;
+use epiviz\models\SimpleIntervalCollection;
+use epiviz\utils\OrderedIntervalTree\SimpleInterval;
 
 class OrderedIntervalTreeTest {
   public function testBuildTreeHierarchy() {
@@ -28,10 +30,15 @@ class OrderedIntervalTreeTest {
     //print_r(json_encode($t->rawOrderedIntervals()));
     $intervals = array();
     for ($i = 5; $i < 15; ++$i) {
-      $intervals[] = (object)array('start' => $i, 'end' => $i + 1);
+      $intervals[] = new SimpleInterval($i, $i + 1);
     }
     print_r($intervals);
-    print_r($t->orderIntervals($intervals));
+
+    $reordered = $t->orderIntervals(new SimpleIntervalCollection($intervals));
+    for ($i = 0; $i < $reordered->count(); ++$i) {
+      print_r($reordered->get($i));
+      print_r("\n");
+    }
   }
 
   public function testBuildTreeIntervals() {
