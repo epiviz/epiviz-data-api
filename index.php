@@ -9,11 +9,27 @@ require_once('autoload.php');
 
 use epiviz\api\EpivizApiController;
 
+use epiviz\api\ValueAggregatorFactory;
+use epiviz\api\Average;
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
-$api_controller = new EpivizApiController();
+$value_aggregator_factory = new ValueAggregatorFactory();
+$value_aggregator_factory->register(new Average());
+
+$api_controller = new EpivizApiController($value_aggregator_factory);
 $req_controller = new \epiviz\api\EpivizRequestController($_REQUEST);
+
+$req_controller->registerMethod(
+  'aggregatingFunctions',
+  array(),
+  'string',
+  array($api_controller, 'getAggregatingFunctions'),
+  array(
+    'request' => 'method=aggregatingFunctions',
+    'response' => $api_controller->getAggregatingFunctions()
+  ));
 
 $req_controller->registerMethod(
   'nodes',
@@ -22,7 +38,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getNodes'),
   array(
     'request' => 'method=nodes&params[]=["1-0","1-1"]',
-    'response' => json_decode('{"1-0":{"id":"1-0","name":"Archaea","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":1,"size":1,"leafIndex":0,"nleaves":1},"1-1":{"id":"1-1","name":"Bacteria","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":34,"size":1,"leafIndex":1,"nleaves":14784}}')
+    'response' => $api_controller->getNodes(array('1-0', '1-1'))
   ));
 
 $req_controller->registerMethod(
@@ -32,7 +48,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getSiblings'),
   array(
     'request' => 'method=siblings&params[]=["1-0","2-26","0-0"]',
-    'response' => json_decode('{"1-0":{"id":"1-0","name":"Archaea","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":1,"size":1,"leafIndex":0,"nleaves":1},"1-1":{"id":"1-1","name":"Bacteria","globalDepth":1,"depth":1,"taxonomy":"kingdom","parentId":"0-0","nchildren":34,"size":1,"leafIndex":1,"nleaves":14784}}')
+    'response' => $api_controller->getSiblings(array('1-0', '2-26', '0-0'))
   ));
 
 $req_controller->registerMethod(
@@ -58,8 +74,8 @@ $req_controller->registerMethod(
       'metadata' => 'object')),
   array($api_controller, 'getRows'),
   array(
-    'request' => 'method=rows&params[start]=15&params[end]=17',
-    'response' => json_decode('{"values":{"index":[14,15,16],"start":[14,15,16],"end":[15,16,17],"metadata":{"id":["8-e","8-f","8-10"],"label":["219134","237664","241895"]}},"globalStartIndex":14,"useOffset":false}')
+    'request' => 'method=rows&params[start]=0&params[end]=130&params[selection]={"2-26":2,"2-7d6":0}&params[order]={"2-26":-1}',
+    'response' => $api_controller->getRows(0, 130, null, null, true, true, false, array('2-26'=>2, '2-7d6'=>0), array('2-26'=>-1))
   ));
 
 $req_controller->registerMethod(
@@ -70,21 +86,22 @@ $req_controller->registerMethod(
     'end' => 'number',
     'partition' => array('type' => 'string', 'optional' => true, 'default' => null),
     'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
-    'order' => array('type' => 'object', 'optional' => true, 'default' => null)
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'aggregationFunction' => array('type' => 'string', 'optional' => true, 'default' => 'average')
   ),
   array(
     'globalStartIndex' => 'number',
     'values' => 'array'),
   array($api_controller, 'getValues'),
   array(
-    'request' => 'method=values&params[measurement]="700014391.V35.241827"&params[start]=2739&params[end]=2742',
-    'response' => json_decode('{"globalStartIndex":2738,"values":[0,76.923,0,76.923]}')
+    'request' => 'method=values&params[measurement]="700014391.V35.241827"&params[start]=2739&params[end]=2742&params[selection]={"2-26":0,"2-7db":1}&params[order]={"8-ab4":-1}',
+    'response' => $api_controller->getValues('700014391.V35.241827', 2739, 2742, null, array('2-26'=>0, '2-7db'=>1), array('8-ab4'=>-1))
   ));
 
 $req_controller->registerMethod(
   'measurements',
   array(
-    'maxCount' => array('type' => 'number', 'optional' => true, 'default' => 0),
+    'maxCount' => array('type' => 'number', 'optional' => true, 'default' => null),
     'annotation' => array('type' => 'array', 'optional' => true, 'default' => null)
   ),
   array(
@@ -101,7 +118,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getMeasurements'),
   array(
     'request' => 'method=measurements&params[maxCount]=2&params[annotation]=["country","index"]',
-    'response' => json_decode('{"id":["700014390.V35.241827","700014391.V35.241827"],"name":[700014390,700014391],"type":"feature","datasourceId":"hmp","datasourceGroup":"hmp","defaultChartType":"","annotation":[{"country":"GAZ:United States of America","index":62},{"country":"GAZ:United States of America","index":5800}],"minValue":1.4880952380952,"maxValue":2420000.0000079,"metadata":["id","label"]}', true)
+    'response' => $api_controller->getMeasurements(2, array('country', 'index'))
   )
 );
 
@@ -125,42 +142,25 @@ $req_controller->registerMethod(
     'nleaves' => 'number',
     'children' => 'array'
   ),
-  array($api_controller, 'getHierarchy'));
+  array($api_controller, 'getHierarchy'),
+  array(
+    'request' => 'method=hierarchy&params[depth]=1&params[nodeId]="1-1"&params[order]={"2-26":-1,"2-7f":34}',
+    'response' => $api_controller->getHierarchy(1, '1-1', null, array('2-26'=>-1, '2-7f'=>34))
+  ));
 
 $req_controller->registerMethod(
   'hierarchies',
   array(
     'depth' => 'number',
     'nodeIds' => 'array',
+    'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
     'order' => array('type' => 'object', 'optional' => true, 'default' => null)
   ),
   'object',
-  array($api_controller, 'getHierarchies'));
+  array($api_controller, 'getHierarchies'),
+  array(
+    'request' => 'method=hierarchies&params[nodeIds]=["1-0","1-1"]&params[depth]=2',
+    'response' => $api_controller->getHierarchies(2, array('1-0', '1-1'))
+  ));
 
 $req_controller->handle($_REQUEST);
-
-/*$n = array(
-  'order' => 0,
-  'children' => array(
-    array(
-      'order' => 2
-    ),
-    array(
-      'order' => 1
-    )
-  )
-);
-
-EpivizApiController::dfs($n, function(&$node) {
-  if (!array_key_exists('children', $node)) { return; }
-  $children = &$node['children'];
-  usort($children, function($c1, $c2) {
-    if (!array_key_exists('order', $c1)) { print_r($c1); }
-    if (!array_key_exists('order', $c2)) { print_r($c2); }
-    return $c1['order'] - $c2['order'];
-  });
-});
-
-print_r($n);
-
-*/

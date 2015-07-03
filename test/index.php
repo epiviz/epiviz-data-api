@@ -27,7 +27,6 @@ class OrderedIntervalTreeTest {
     );
 
     $t = new OrderedIntervalTree($order_nodes);
-    //print_r(json_encode($t->rawOrderedIntervals()));
     $intervals = array();
     for ($i = 5; $i < 15; ++$i) {
       $intervals[] = new SimpleInterval($i, $i + 1);
@@ -35,8 +34,8 @@ class OrderedIntervalTreeTest {
     print_r($intervals);
 
     $reordered = $t->orderIntervals(new SimpleIntervalCollection($intervals));
-    for ($i = 0; $i < $reordered->count(); ++$i) {
-      print_r($reordered->get($i));
+    for ($i = 0; $i < count($reordered); ++$i) {
+      print_r($intervals[$reordered[$i]]);
       print_r("\n");
     }
   }

@@ -37,7 +37,17 @@ class EpivizApiController {
   private $minVal = null;
   private $maxVal = null;
 
-  public function __construct() {
+  /**
+   * @var ValueAggregatorFactory
+   */
+  private $aggregatorFactory;
+
+  /**
+   * @param ValueAggregatorFactory $aggregator_factory
+   */
+  public function __construct(ValueAggregatorFactory $aggregator_factory) {
+    $this->aggregatorFactory = $aggregator_factory;
+
     $this->intervalQueryFormat = '(`index` BETWEEN '
       .'(SELECT MIN(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?) AND '
       .'(SELECT MAX(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?)) ';
@@ -45,7 +55,7 @@ class EpivizApiController {
     $this->rowsQueryFormat = 'SELECT %1$s FROM %2$s WHERE %3$s ORDER BY `index` ASC ';
 
     $this->valsQueryFormat =
-      'SELECT `val`, `%1$s`.`index` FROM `%1$s` LEFT OUTER JOIN '
+      'SELECT `val`, `%1$s`.`index`, `%1$s`.`start`, `%1$s`.`end` FROM `%1$s` LEFT OUTER JOIN '
       .'(SELECT `val`, `row`, `col` FROM `%2$s` JOIN `%3$s` ON `col` = `index` WHERE `%3$s`.`id` = ?) vals '
       .'ON vals.`row` = `%1$s`.`index` '
       .'WHERE %4$s ORDER BY `%1$s`.`index` ASC ';
@@ -158,6 +168,13 @@ class EpivizApiController {
   }
 
   /**
+   * @return array
+   */
+  public function getAggregatingFunctions() {
+    return array_keys($this->aggregatorFactory->values());
+  }
+
+  /**
    * Gets the nodes corresponding to the given ids
    * @param array $node_ids
    * @return array
@@ -211,20 +228,18 @@ class EpivizApiController {
     $selection_nodes = array();
     foreach ($selection_node_ids as $node_id) {
       // Discard nodes set to LEAVES
-      if (idx($selection, $node_id) === SelectionType::LEAVES) {
+      $selection_type = idx($selection, $node_id);
+      if ($selection_type === SelectionType::LEAVES) {
         unset($selection[$node_id]);
         continue;
       }
       $node = idx($nodes, $node_id);
       if ($node !== null) {
+        $node->selectionType = $selection_type;
         $selection_nodes[$node_id] = $node;
       }
     }
 
-    return $selection_nodes;
-  }
-
-  private function buildSelectionIntervals(array &$selection_nodes, $start=null, $end=null) {
     // Discard nodes included in larger ranges of ancestors
     uasort($selection_nodes, function(Node $n1, Node $n2) {
       return $n1->start - $n2->start;
@@ -246,11 +261,13 @@ class EpivizApiController {
       $prev_node = $node;
     }
 
-    $cond_selection_nodes = array_filter($selection_nodes, function(Node $node) use ($start, $end) {
+    return $selection_nodes;
+  }
+
+  private function filterOutOfRangeSelectionNodes(array &$selection_nodes, $start=null, $end=null) {
+    return array_filter($selection_nodes, function(Node $node) use ($start, $end) {
       return ($end === null || $node->start < $end) && ($start === null || $node->end > $start);
     });
-
-    return $cond_selection_nodes;
   }
 
   private function calcSelectionNodeIndexes(array &$selection_nodes, $start=null, $end=null) {
@@ -312,11 +329,11 @@ class EpivizApiController {
     $nodes = $this->getSiblings($node_ids);
 
     $selection_nodes = $this->extractSelectionNodes($nodes, $selection);
-    $cond_selection_nodes = $this->buildSelectionIntervals($selection_nodes, $start, $end);
+    $in_range_selection_nodes = $this->filterOutOfRangeSelectionNodes($selection_nodes, $start, $end);
     list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $start, $end);
 
     // Build correct select intervals
-    $cond = implode(' OR ', array_fill(0, 1+count($cond_selection_nodes),
+    $cond = implode(' OR ', array_fill(0, 1+count($in_range_selection_nodes),
       sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
 
     $fields = '`index`, `start`';
@@ -329,7 +346,7 @@ class EpivizApiController {
     }
     $params[] = $start;
     $last_end = $start;
-    foreach ($cond_selection_nodes as $node) {
+    foreach ($in_range_selection_nodes as $node) {
       $params[] = $node->start;
       if ($partition != null) {
         $params[] = $partition;
@@ -369,7 +386,7 @@ class EpivizApiController {
       $s = 0 + $r[1];
 
       while ($selection_node !== null && $s >= $selection_node->end) {
-        if (idx($selection, $selection_node_id) === SelectionType::NODE) {
+        if ($selection_node->selectionType === SelectionType::NODE) {
           $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node));
         }
 
@@ -384,11 +401,17 @@ class EpivizApiController {
       if ($ret->count() == 1) { $ret->globalStartIndex -= $index_collapse; }
     }
 
+    if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE) {
+      $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node));
+    }
+
     while (list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes)) {
       $selection_node = $selection_nodes[$selection_node_id];
       if ($selection_node->start >= $end) { break; }
 
-      $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node));
+      if ($selection_node->selectionType === SelectionType::NODE) {
+        $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node));
+      }
     }
 
     // Apply ordering
@@ -404,9 +427,22 @@ class EpivizApiController {
     return $ret;
   }
 
-  public function getValues($measurement, $start, $end, $partition=null, array $selection=null, array $order=null) {
+  /**
+   * @param string $measurement
+   * @param int $start
+   * @param int $end
+   * @param string $partition
+   * @param array $selection
+   * @param array $order
+   * @param string $aggregation_function
+   * @return ValueCollection
+   */
+  public function getValues($measurement, $start, $end, $partition=null, array $selection=null, array $order=null, $aggregation_function=null) {
     if ($selection === null) { $selection = array(); }
     if ($order === null) { $order = array(); }
+
+    if ($aggregation_function == null) { $aggregation_function = 'average'; }
+    $agg_func = $this->aggregatorFactory->get($aggregation_function);
 
     $ret = new ValueCollection();
     if (!$this->measurementExists($measurement)) {
@@ -417,21 +453,30 @@ class EpivizApiController {
     $nodes = $this->getSiblings($node_ids);
 
     $selection_nodes = $this->extractSelectionNodes($nodes, $selection);
-    $cond_selection_nodes = $this->buildSelectionIntervals($selection_nodes, $start, $end);
+    $in_range_selection_nodes = $this->filterOutOfRangeSelectionNodes($selection_nodes, $start, $end);
+
+    foreach ($in_range_selection_nodes as $node) {
+      if ($node->selectionType == SelectionType::NODE) {
+        if ($node->start < $start) {
+          $start = $node->start;
+        }
+        if ($node->end > $end) {
+          $end = $node->end;
+        }
+      }
+    }
+
     list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $start, $end);
+
+    $cond_selection_nodes = array_filter($in_range_selection_nodes, function(Node $node) { return $node->selectionType === SelectionType::NONE; });
 
     // Build correct select intervals
     $cond = implode(' OR ', array_fill(0, 1+count($cond_selection_nodes),
       sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
 
-    print_r($selection_nodes);
-    print_r("\n\n");
-
-    print_r($cond);
-    print_r("\n\n");
-
     $params = array();
     $params[] = $measurement;
+
     if ($partition != null) {
       $params[] = $partition;
     }
@@ -451,6 +496,7 @@ class EpivizApiController {
       $params[] = $node->end;
       $last_end = $node->end;
     }
+
     $params[] = $end;
     if ($partition != null) {
       $params[] = $partition;
@@ -458,59 +504,83 @@ class EpivizApiController {
     $params[] = $last_end;
     $params[] = $end;
 
-    /*$params = array(
-      'measurement' => $measurement,
-      'start1' => $start,
-      'start2' => $start,
-      'end1' => $end,
-      'end2' => $end);
-    if ($partition != null) {
-      $params['part1'] = $partition;
-      $params['part2'] = $partition;
-    }*/
-
     $sql = sprintf($this->valsQueryFormat,
       EpivizApiController::ROWS_TABLE,
       EpivizApiController::VALUES_TABLE,
       EpivizApiController::COLS_TABLE,
       $cond
     );
-    print_r($sql);
-    print_r("\n\n");
-
-    print_r($params);
-    print_r("\n\n");
 
     $stmt = $this->db->prepare($sql);
     $stmt->execute($params);
 
-    /*$data = array(
-      'globalStartIndex' => null,
-      'values' => array()
-    );*/
+    list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
+    $selection_node = idx($selection_nodes, $selection_node_id);
+    $index_collapse = $start_index_collapse;
 
     $min_index = null;
     $last_index = null;
+    $vals = array();
     while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
-      /*if ($min_index === null) { $min_index = 0 + $r[1]; }
-      $data['values'][] = $r[0] == null ? 0 : round(0 + $r[0], 3);*/
-      $ret->add($r[0] == null ? 0 : round(0 + $r[0], 3), 0 + $r[1]);
-    }
-    /*$data['globalStartIndex'] = $min_index;*/
+      $v = $r[0] == null ? 0 : round(0 + $r[0], 3);
+      $s = 0 + $r[2]; // start
+      $e = 0 + $r[3];
+      if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE &&
+          $s >= $selection_node->start && $e <= $selection_node->end) {
+        $vals[] = $v;
+        continue;
+      }
 
-    /* TODO: Add selection grouping
-    SELECT SUM(`val`)/(SELECT COUNT(`row_data`.`id`) FROM `row_data` WHERE (`index` BETWEEN (SELECT MIN(`index`) FROM row_data WHERE `partition` IS NULL AND `end` > 2011 AND `start` < 3820) AND (SELECT MAX(`index`) FROM row_data WHERE `partition` IS NULL AND `end` > 2011 AND `start` < 3820)))
-FROM `row_data`
-  LEFT OUTER JOIN (SELECT `val`, `row`, `col` FROM `values` JOIN `col_data` ON `col` = `index` WHERE `col_data`.`id` = "700014391.V35.241827") vals
-  ON vals.`row` = `row_data`.`index`
-WHERE
-  (`index` BETWEEN (SELECT MIN(`index`) FROM row_data WHERE `partition` IS NULL AND `end` > 2011 AND `start` < 3820) AND (SELECT MAX(`index`) FROM row_data WHERE `partition` IS NULL AND `end` > 2011 AND `start` < 3820));
-     */
+      while ($selection_node !== null && $s >= $selection_node->end) {
+        if ($selection_node->selectionType === SelectionType::NODE) {
+          $ret->add($agg_func->aggregate($vals), $selection_node_index, $selection_node->start, $selection_node->end);
+          $vals = array();
+        }
+
+        list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
+        $selection_node = idx($selection_nodes, $selection_node_id);
+        $index_collapse = $selection_node->leafIndex - $selection_node_index;
+      }
+
+      $ret->add($r[0] == null ? 0 : round(0 + $r[0], 3), 0 + $r[1] - $index_collapse, $s, $e);
+
+      if ($ret->count() == 1) { $ret->globalStartIndex -= $index_collapse; }
+    }
+
+    if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE) {
+      $ret->add($agg_func->aggregate($vals), $selection_node_index, $selection_node->start, $selection_node->end);
+      $vals = array();
+    }
+
+    while (list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes)) {
+      $selection_node = $selection_nodes[$selection_node_id];
+      if ($selection_node->start >= $end) { break; }
+
+      if ($selection_node->selectionType === SelectionType::NODE) {
+        $ret->add($agg_func->aggregate($vals), $selection_node_index, $selection_node->start, $selection_node->end);
+        $vals = array();
+      }
+    }
+
+    // Apply ordering
+    if (!empty($order)) {
+      $parent_ids = array_flip(array_map(function($node_id) use ($nodes) { return $nodes[$node_id]->parentId; }, array_keys($order)));
+      $order_nodes = array_filter($nodes, function(Node $node) use ($parent_ids) { return array_key_exists($node->parentId, $parent_ids); });
+      array_walk($order_nodes, function(Node &$node) use ($order) { $node->order = idx($order, $node->id, $node->order); });
+
+      $ordered_interval_tree = new OrderedIntervalTree($order_nodes);
+      $ret = $ret->reorder($ordered_interval_tree->orderIntervals($ret));
+    }
 
     return $ret;
   }
 
-  public function getMeasurements($max_count, array $annotation=null) {
+  /**
+   * @param int $max_count
+   * @param array $annotation
+   * @return array
+   */
+  public function getMeasurements($max_count=null, array $annotation=null) {
     $fields = '`id`, `label`';
     $annotation_index = 2;
 
@@ -543,7 +613,7 @@ WHERE
     $sql = sprintf($this->colsQueryFormat,
       $fields,
       EpivizApiController::COLS_TABLE,
-      $max_count > 0 ? 'LIMIT '.$max_count : ''
+      $max_count ? 'LIMIT '.$max_count : ''
     );
 
     $stmt = $this->db->prepare($sql);
@@ -593,6 +663,13 @@ WHERE
     return $result;
   }
 
+  /**
+   * @param int $depth
+   * @param string $node_id
+   * @param array $selection
+   * @param array $order
+   * @return Node
+   */
   public function getHierarchy($depth, $node_id=null, array $selection=null, array $order=null) {
     if ($node_id === null) { $node_id = '0-0'; }
     $node_depth = hexdec(explode('-', $node_id)[0]);
@@ -635,7 +712,15 @@ WHERE
     return $root;
   }
 
-  public function getHierarchies($depth, array $node_ids, array $selection=null, array $order=null) {
+  /**
+   * @param int $depth
+   * @param array $node_ids
+   * @param array $selection
+   * @param array $selection
+   * @param array $order
+   * @return array
+   */
+  public function getHierarchies($depth, array $node_ids, array $selection=null, array $selection=null, array $order=null) {
     $max_depths = array_map(function($node_id) { return hexdec(explode('-', $node_id)[0]); }, $node_ids);
     foreach ($max_depths as &$max_depth) { $max_depth += $depth; }
     $sqls = array_fill(0, count($node_ids), sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE));
@@ -657,11 +742,11 @@ WHERE
 
       $node_map[$id] = $node;
 
-      $parent_id = $node['parentId'];
+      $parent_id = $node->parentId;
       if (array_key_exists($parent_id, $node_map)) {
-        $siblings = &$node_map[$parent_id]['children'];
-        $new_order = idx($order, $id, $node['order']);
-        $node_order = &$node_map[$id]['order'];
+        $siblings = &$node_map[$parent_id]->children;
+        $new_order = idx($order, $id, $node->order);
+        $node_order = &$node_map[$id]->order;
         $node_order = $new_order;
         $siblings[] = &$node_map[$id];
       }
