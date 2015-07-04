@@ -100,8 +100,8 @@ class EpivizRequestController {
         $ret[] = $default;
       } else {
         $json_val = $params[$name];
-        $val = $decoded ? $json_val : json_decode($params[$name], true);
-        if (!$decoded && json_encode($val) != $json_val) {
+        $val = ($decoded /*|| is_array($json_val) || $json_val == ''*/) ? $json_val : json_decode($params[$name], true);
+        if (!$decoded /*&& !is_array($json_val) && $json_val != ''*/ && json_encode($val) != $json_val) {
           throw new Exception('Error parsing value of parameter \''.$name.'\': \''.$json_val.'\'.');
         }
         switch ($type) {

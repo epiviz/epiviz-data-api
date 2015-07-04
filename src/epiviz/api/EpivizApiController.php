@@ -29,6 +29,7 @@ class EpivizApiController {
   private $rowsQueryFormat;
   private $valsQueryFormat;
   private $colsQueryFormat;
+  private $partitionsQueryFormat;
   private $hierarchyQueryFormat;
   private $nodesQueryFormat;
   private $nodesOrderBy;
@@ -59,16 +60,11 @@ class EpivizApiController {
       .'(SELECT `val`, `row`, `col` FROM `%2$s` JOIN `%3$s` ON `col` = `index` WHERE `%3$s`.`id` = ?) vals '
       .'ON vals.`row` = `%1$s`.`index` '
       .'WHERE %4$s ORDER BY `%1$s`.`index` ASC ';
-/*      'SELECT `val`, `%1$s`.`index` FROM `%1$s` LEFT OUTER JOIN '
-        .'(SELECT `val`, `row`, `col` FROM `%2$s` JOIN `%3$s` ON `col` = `index` WHERE `%3$s`.`id` = :measurement) vals '
-        .'ON vals.`row` = `%1$s`.`index` '
-      .'WHERE `%1$s`.`index` BETWEEN '
-        .'(SELECT MIN(`index`) FROM `%1$s` WHERE %4$s AND `start` < :end1 AND `end` >= :start1) AND '
-        .'(SELECT MAX(`index`) FROM `%1$s` WHERE %5$s AND `start` < :end2 AND `end` >= :start2) '
-      .'ORDER BY `%1$s`.`index` ASC ';
-*/
+
     $this->colsQueryFormat =
       'SELECT %1$s FROM %2$s ORDER BY `id` ASC %3$s ';
+
+    $this->partitionsQueryFormat = 'SELECT `partition`, MIN(`start`), MAX(`end`) FROM %1$s GROUP BY `partition` ORDER BY `partition` ASC';
 
     $this->hierarchyQueryFormat =
       'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order` '
@@ -765,5 +761,22 @@ class EpivizApiController {
     }
 
     return $ret;
+  }
+
+  /**
+   * @return array
+   */
+  public function getPartitions() {
+    $sql = sprintf($this->partitionsQueryFormat, EpivizApiController::ROWS_TABLE);
+
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+
+    $partitions = array();
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
+      $partitions[] = $r;
+    }
+
+    return $partitions;
   }
 }

@@ -163,4 +163,14 @@ $req_controller->registerMethod(
     'response' => $api_controller->getHierarchies(2, array('1-0', '1-1'))
   ));
 
+$req_controller->registerMethod(
+  'partitions',
+  array(),
+  'array',
+  array($api_controller, 'getPartitions'),
+  array(
+    'request' => 'method=partitions',
+    'response' => $api_controller->getPartitions()
+  ));
+
 $req_controller->handle($_REQUEST);
