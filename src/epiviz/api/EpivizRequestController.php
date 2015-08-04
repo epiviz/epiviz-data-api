@@ -15,17 +15,23 @@ class EpivizRequestController {
   private $handlers = array();
 
   public function __construct() {
+    $self = $this;
     $this->registerMethod(
       'show',
       array('method' => array('type' => 'string', 'optional' => true, 'default' => null)),
       'array',
-      array($this, 'show'));
+      array($this, 'show'),
+      array(
+        'request' => 'method=show&params[method]="help"',
+        'response' => function() use ($self) { return $self->show('help'); }));
 
     $this->registerMethod(
       'help',
       array(),
       array('methods' => 'array', 'exampleUsage' => 'string'),
-      array($this, 'help'));
+      array($this, 'help'),
+      array('request' => 'method=help', 'response' => function() use ($self) { return $self->help(); })
+      );
   }
 
   private function help() {
@@ -43,9 +49,16 @@ class EpivizRequestController {
         if ($n1 == $n2) { return 0; }
         return ($n1 > $n2) ? +1 : -1;
       });
+
+      array_walk($methods, function(&$m) {
+        $m['example']['response'] = $m['example']['response']();
+      });
+
       return $methods;
     } else {
-      return $this->methods[$this->methodsMap[$method]];
+      $m = $this->methods[$this->methodsMap[$method]];
+      $m['example']['response'] = $m['example']['response']();
+      return $m;
     }
   }
 

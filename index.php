@@ -28,7 +28,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getAggregatingFunctions'),
   array(
     'request' => 'method=aggregatingFunctions',
-    'response' => $api_controller->getAggregatingFunctions()
+    'response' => function() use ($api_controller) { return $api_controller->getAggregatingFunctions(); }
   ));
 
 $req_controller->registerMethod(
@@ -38,7 +38,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getNodes'),
   array(
     'request' => 'method=nodes&params[]=["1-0","1-1"]',
-    'response' => $api_controller->getNodes(array('1-0', '1-1'))
+    'response' => function() use ($api_controller) { return $api_controller->getNodes(array('1-0', '1-1')); }
   ));
 
 $req_controller->registerMethod(
@@ -48,7 +48,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getSiblings'),
   array(
     'request' => 'method=siblings&params[]=["1-0","2-26","0-0"]',
-    'response' => $api_controller->getSiblings(array('1-0', '2-26', '0-0'))
+    'response' => function() use ($api_controller) { return $api_controller->getSiblings(array('1-0', '2-26', '0-0')); }
   ));
 
 $req_controller->registerMethod(
@@ -75,7 +75,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getRows'),
   array(
     'request' => 'method=rows&params[start]=0&params[end]=130&params[selection]={"2-26":2,"2-7d6":0}&params[order]={"2-26":-1}',
-    'response' => $api_controller->getRows(0, 130, null, null, true, true, false, array('2-26'=>2, '2-7d6'=>0), array('2-26'=>-1))
+    'response' => function() use ($api_controller) { return $api_controller->getRows(0, 130, null, null, true, true, false, array('2-26'=>2, '2-7d6'=>0), array('2-26'=>-1)); }
   ));
 
 $req_controller->registerMethod(
@@ -95,7 +95,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getValues'),
   array(
     'request' => 'method=values&params[measurement]="700014391.V35.241827"&params[start]=2739&params[end]=2742&params[selection]={"2-26":0,"2-7db":1}&params[order]={"8-ab4":-1}',
-    'response' => $api_controller->getValues('700014391.V35.241827', 2739, 2742, null, array('2-26'=>0, '2-7db'=>1), array('8-ab4'=>-1))
+    'response' => function() use ($api_controller) { return $api_controller->getValues('700014391.V35.241827', 2739, 2742, null, array('2-26'=>0, '2-7db'=>1), array('8-ab4'=>-1)); }
   ));
 
 $req_controller->registerMethod(
@@ -118,7 +118,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getMeasurements'),
   array(
     'request' => 'method=measurements&params[maxCount]=2&params[annotation]=["country","index"]',
-    'response' => $api_controller->getMeasurements(2, array('country', 'index'))
+    'response' => function() use ($api_controller) { return $api_controller->getMeasurements(2, array('country', 'index')); }
   )
 );
 
@@ -145,7 +145,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getHierarchy'),
   array(
     'request' => 'method=hierarchy&params[depth]=1&params[nodeId]="1-1"&params[order]={"2-26":-1,"2-7f":34}',
-    'response' => $api_controller->getHierarchy(1, '1-1', null, array('2-26'=>-1, '2-7f'=>34))
+    'response' => function() use ($api_controller) { return $api_controller->getHierarchy(1, '1-1', null, array('2-26'=>-1, '2-7f'=>34)); }
   ));
 
 $req_controller->registerMethod(
@@ -160,7 +160,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getHierarchies'),
   array(
     'request' => 'method=hierarchies&params[nodeIds]=["1-0","1-1"]&params[depth]=2',
-    'response' => $api_controller->getHierarchies(2, array('1-0', '1-1'))
+    'response' => function() use ($api_controller) { return $api_controller->getHierarchies(2, array('1-0', '1-1')); }
   ));
 
 $req_controller->registerMethod(
@@ -170,7 +170,7 @@ $req_controller->registerMethod(
   array($api_controller, 'getPartitions'),
   array(
     'request' => 'method=partitions',
-    'response' => $api_controller->getPartitions()
+    'response' => function() use ($api_controller) { return $api_controller->getPartitions(); }
   ));
 
 $req_controller->handle($_REQUEST);

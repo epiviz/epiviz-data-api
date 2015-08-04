@@ -23,6 +23,9 @@ class EpivizDatabase {
           PDO::ATTR_EMULATE_PREPARES => false, // Used to prevent SQL injection
           PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
         ));
+
+      $this->db->exec('SET GLOBAL tmp_table_size = 1024 * 1024 * 1024 * 2');
+      $this->db->exec('SET max_heap_table_size = 1024 * 1024 * 1024 * 2');
     }
 
     return $this->db;

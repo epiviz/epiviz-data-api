@@ -26,6 +26,10 @@ class EpivizApiController {
   const HIERARCHY_TABLE = 'hierarchy';
   const LEVELS_TABLE = 'levels';
 
+  const TEMP_ROWS = 'temp_rows';
+  const TEMP_VALS = 'temp_vals';
+  const TEMP_COLS = 'temp_cols';
+
   private $rowsQueryFormat;
   private $valsQueryFormat;
   private $colsQueryFormat;
@@ -369,10 +373,19 @@ class EpivizApiController {
 
     $ret = new RowCollection($metadata, $offset_location, $retrieve_index, $retrieve_end);
 
-    $sql = sprintf($this->rowsQueryFormat, $fields, EpivizApiController::ROWS_TABLE, $cond);
+    $db = $this->db;
+    $db->beginTransaction();
+
+    $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_ROWS));
+    $db->prepare(sprintf('CREATE TEMPORARY TABLE `%1$s` ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE %3$s ORDER BY `index` ASC)',
+      EpivizApiController::TEMP_ROWS, EpivizApiController::ROWS_TABLE, $cond))->execute($params);
+
+    $db->commit();
+
+    $sql = sprintf('SELECT %1$s FROM %2$s ', $fields, EpivizApiController::TEMP_ROWS);
 
     $stmt = $this->db->prepare($sql);
-    $stmt->execute($params);
+    $stmt->execute();
 
     list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
     $selection_node = idx($selection_nodes, $selection_node_id);
@@ -471,7 +484,6 @@ class EpivizApiController {
       sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
 
     $params = array();
-    $params[] = $measurement;
 
     if ($partition != null) {
       $params[] = $partition;
@@ -500,15 +512,24 @@ class EpivizApiController {
     $params[] = $last_end;
     $params[] = $end;
 
-    $sql = sprintf($this->valsQueryFormat,
-      EpivizApiController::ROWS_TABLE,
-      EpivizApiController::VALUES_TABLE,
-      EpivizApiController::COLS_TABLE,
-      $cond
-    );
+    $db = $this->db;
+    $db->beginTransaction();
+
+    $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_ROWS));
+    $db->prepare(sprintf('CREATE TEMPORARY TABLE `%1$s` ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE %3$s ORDER BY `index` ASC)',
+      EpivizApiController::TEMP_ROWS, EpivizApiController::ROWS_TABLE, $cond))->execute($params);
+
+    $db->commit();
+
+    $sql = sprintf(
+      'SELECT `val`, `%1$s`.`index`, `%1$s`.`start`, `%1$s`.`end` FROM `%1$s` LEFT OUTER JOIN '
+      .'(SELECT `val`, `row`, `col` FROM `%2$s` WHERE '
+        .'`col` = (SELECT `index` FROM `%3$s` WHERE `id` = ?)) vals '
+      .'ON vals.`row` = `%1$s`.`index` ORDER BY `%1$s`.`index` ASC ',
+      EpivizApiController::TEMP_ROWS, EpivizApiController::VALUES_TABLE, EpivizApiController::COLS_TABLE);
 
     $stmt = $this->db->prepare($sql);
-    $stmt->execute($params);
+    $stmt->execute(array($measurement));
 
     list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
     $selection_node = idx($selection_nodes, $selection_node_id);
@@ -522,7 +543,7 @@ class EpivizApiController {
       $s = 0 + $r[2]; // start
       $e = 0 + $r[3];
       if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE &&
-          $s >= $selection_node->start && $e <= $selection_node->end) {
+        $s >= $selection_node->start && $e <= $selection_node->end) {
         $vals[] = $v;
         continue;
       }
