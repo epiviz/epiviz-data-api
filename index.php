@@ -173,4 +173,14 @@ $req_controller->registerMethod(
     'response' => function() use ($api_controller) { return $api_controller->getPartitions(); }
   ));
 
+$req_controller->registerMethod(
+  'levels',
+  array(),
+  'array',
+  array($api_controller, 'getLevels'),
+  array(
+    'request' => 'method=levels',
+    'response' => function() use ($api_controller) { return $api_controller->getLevels(); }
+  ));
+
 $req_controller->handle($_REQUEST);

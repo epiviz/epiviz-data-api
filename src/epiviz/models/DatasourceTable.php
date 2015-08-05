@@ -22,12 +22,13 @@ class DatasourceTable {
   /**
    * @param array $measurements
    * @param array $metadata_cols
+   * @param array $levels
    * @param bool $use_offset
    * @param bool $store_index
    * @param bool $store_end
    */
-  public function __construct(array $measurements = array(), array $metadata_cols = null, $use_offset = false, $store_index = true, $store_end = true) {
-    $this->rowCollection = new RowCollection($metadata_cols, $use_offset, $store_index, $store_end);
+  public function __construct(array $measurements = array(), array $metadata_cols = null, array $levels, $use_offset = false, $store_index = true, $store_end = true) {
+    $this->rowCollection = new RowCollection($metadata_cols, $levels, $use_offset, $store_index, $store_end);
     $this->rows = &$this->rowCollection->values;
 
     $value_collections = array_flip($measurements);

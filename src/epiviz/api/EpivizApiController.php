@@ -30,6 +30,8 @@ class EpivizApiController {
   const TEMP_VALS = 'temp_vals';
   const TEMP_COLS = 'temp_cols';
 
+  private $levelsQueryFormat;
+  private $intervalQueryFormat;
   private $rowsQueryFormat;
   private $valsQueryFormat;
   private $colsQueryFormat;
@@ -53,6 +55,10 @@ class EpivizApiController {
   public function __construct(ValueAggregatorFactory $aggregator_factory) {
     $this->aggregatorFactory = $aggregator_factory;
 
+    // TODO: Update these queries to the ones actually used in getRows and getValues
+
+    $this->levelsQueryFormat = 'SELECT `depth`, `label` FROM %1$s ORDER BY `depth` ';
+
     $this->intervalQueryFormat = '(`index` BETWEEN '
       .'(SELECT MIN(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?) AND '
       .'(SELECT MAX(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?)) ';
@@ -71,15 +77,15 @@ class EpivizApiController {
     $this->partitionsQueryFormat = 'SELECT `partition`, MIN(`start`), MAX(`end`) FROM %1$s GROUP BY `partition` ORDER BY `partition` ASC';
 
     $this->hierarchyQueryFormat =
-      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order` '
+      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order`, `lineageLabel` '
       .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `lineage` LIKE ? AND `%1$s`.`depth` <= ? ';
 
     $this->nodesQueryFormat =
-      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order` '
+      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order`, `lineageLabel` '
       .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `id` IN (%3$s) ';
 
     $this->siblingsQueryFormat =
-      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order` '
+      'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order`, `lineageLabel` '
       .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `parentId` IN '
       .'(SELECT `parentId` FROM `%1$s` WHERE `id` IN (%3$s)) OR `id` IN (%3$s) ';
 
@@ -135,7 +141,8 @@ class EpivizApiController {
    * @return Node
    */
   private static function createNodeFromDbRecord(array $r) {
-    // `id`, `label`, `depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `taxonomy`, `leafIndex`, `nleaves`, `order`
+    // 0,    1,       2,       3,          4,         5,       6,     7,           8,           9,          10,          11,        12,      13,
+    // `id`, `label`, `depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `taxonomy`, `leafIndex`, `nleaves`, `order`, `lineageLabel`
     $id = $r[0];
     return new Node(
       $id, // id
@@ -151,7 +158,8 @@ class EpivizApiController {
       0 + $r[10], // leafIndex
       0 + $r[11], // nleaves
       0 + $r[12], // order
-      $r[4]); // lineage
+      $r[4], // lineage
+      $r[13]); // lineageLabel
   }
 
   /**
@@ -296,6 +304,24 @@ class EpivizApiController {
   }
 
   /**
+   * Gets an array of depth => hierarchy level name
+   * @return array
+   */
+  public function getLevels() {
+    $sql = sprintf($this->levelsQueryFormat, EpivizApiController::LEVELS_TABLE);
+
+    $stmt = $this->db->prepare($sql);
+    $stmt->execute();
+
+    $ret = array();
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
+      $ret[$r[0]] = $r[1];
+    }
+
+    return $ret;
+  }
+
+  /**
    * @param int $start
    * @param int$end
    * @param string $partition
@@ -340,9 +366,9 @@ class EpivizApiController {
     $cond = implode(' OR ', array_fill(0, 1+count($in_range_selection_nodes),
       sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
 
-    $fields = '`index`, `start`';
+    $fields = '`%1$s`.`index`, `%1$s`.`start`';
     $metadata_cols_index = 2;
-    if ($retrieve_end) { $fields .= ', `end`'; ++$metadata_cols_index; }
+    if ($retrieve_end) { $fields .= ', `%1$s`.`end`'; ++$metadata_cols_index; }
 
     $params = array();
     if ($partition != null) {
@@ -372,10 +398,13 @@ class EpivizApiController {
     $params[] = $end;
 
     foreach ($metadata as $col) {
-      $fields .= ', `' . $col . '`';
+      $fields .= ', `%1$s`.`' . $col . '`';
     }
 
-    $ret = new RowCollection($metadata, $offset_location, $retrieve_index, $retrieve_end);
+    $fields .= ', `%2$s`.`lineagelabel`, `%2$s`.`lineage`, `%2$s`.`depth`';
+    $fields = sprintf($fields, EpivizApiController::TEMP_ROWS, EpivizApiController::HIERARCHY_TABLE);
+
+    $ret = new RowCollection($metadata, $this->getLevels(), $offset_location, $retrieve_index, $retrieve_end);
 
     $db = $this->db;
     $db->beginTransaction();
@@ -386,7 +415,7 @@ class EpivizApiController {
 
     $db->commit();
 
-    $sql = sprintf('SELECT %1$s FROM %2$s ', $fields, EpivizApiController::TEMP_ROWS);
+    $sql = sprintf('SELECT %1$s FROM `%2$s` LEFT JOIN `%3$s` ON `%2$s`.`id` = `%3$s`.`id` ', $fields, EpivizApiController::TEMP_ROWS, EpivizApiController::HIERARCHY_TABLE);
 
     $stmt = $this->db->prepare($sql);
     $stmt->execute();
@@ -400,7 +429,7 @@ class EpivizApiController {
 
       while ($selection_node !== null && $s >= $selection_node->end) {
         if ($selection_node->selectionType === SelectionType::NODE) {
-          $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node));
+          $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()));
         }
 
         list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
@@ -415,7 +444,7 @@ class EpivizApiController {
     }
 
     if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE) {
-      $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node));
+      $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()));
     }
 
     while (list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes)) {
@@ -423,7 +452,7 @@ class EpivizApiController {
       if ($selection_node->start >= $end) { break; }
 
       if ($selection_node->selectionType === SelectionType::NODE) {
-        $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node));
+        $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()));
       }
     }
 
@@ -654,6 +683,7 @@ class EpivizApiController {
         $metadata_cols[] = $col;
       }
     }
+    $metadata_cols = array_merge($metadata_cols, $this->getLevels());
 
     $result = array(
       'id' => array(),

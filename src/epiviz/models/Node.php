@@ -31,8 +31,9 @@ class Node {
   public $children;
 
   private $lineage;
+  private $lineageLabel;
 
-  public function __construct($id, $label, $depth, $taxonomy, $parent_id, $nchildren, $children, $partition, $start, $end, $leaf_index, $nleaves, $order, $lineage, $selection_type=SelectionType::LEAVES) {
+  public function __construct($id, $label, $depth, $taxonomy, $parent_id, $nchildren, $children, $partition, $start, $end, $leaf_index, $nleaves, $order, $lineage, $lineage_label, $selection_type=SelectionType::LEAVES) {
     $this->id = $id;
     $this->label = $label;
     $this->name = $label;
@@ -49,8 +50,11 @@ class Node {
     $this->nleaves = $nleaves;
     $this->order = $order;
     $this->lineage = $lineage;
+    $this->lineageLabel = $lineage_label;
     $this->selectionType = $selection_type;
   }
 
   public function lineage() { return $this->lineage; }
+
+  public function lineageLabel() { return $this->lineageLabel; }
 }
