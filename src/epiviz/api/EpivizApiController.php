@@ -85,7 +85,10 @@ class EpivizApiController {
 
     $this->nodesOrderBy = 'ORDER BY `depth`, `partition`, `start`, `end` ';
 
-    $this->db = (new EpivizDatabase())->db();
+    // TODO: After upgrading to PHP 5.4.2, replace the two lines below with the commented line
+    // $this->db = (new EpivizDatabase())->db();
+    $epiviz_db = new EpivizDatabase();
+    $this->db = $epiviz_db->db();
   }
 
   /**
@@ -152,10 +155,11 @@ class EpivizApiController {
   }
 
   /**
+   * TODO: After upgrading to PHP 5.4.2 or later, uncomment the callable attribute
    * @param Node $node
    * @param callable $callback
    */
-  public static function dfs(Node &$node = null, callable $callback) {
+  public static function dfs(Node &$node = null, /* callable */ $callback) {
     if ($node === null) { return; }
 
     $callback($node);
@@ -689,7 +693,12 @@ class EpivizApiController {
    */
   public function getHierarchy($depth, $node_id=null, array $selection=null, array $order=null) {
     if ($node_id === null) { $node_id = '0-0'; }
-    $node_depth = hexdec(explode('-', $node_id)[0]);
+
+    // TODO: After upgrading to PHP 5.4.2, replace the two lines below with the commented line
+    // $node_depth = hexdec(explode('-', $node_id)[0]);
+    $pair = explode('-', $node_id);
+    $node_depth = hexdec($pair[0]);
+
     $max_depth = $node_depth + $depth;
     $sql = sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE).$this->nodesOrderBy;
     $stmt = $this->db->prepare($sql);
@@ -738,7 +747,14 @@ class EpivizApiController {
    * @return array
    */
   public function getHierarchies($depth, array $node_ids, array $selection=null, array $selection=null, array $order=null) {
-    $max_depths = array_map(function($node_id) { return hexdec(explode('-', $node_id)[0]); }, $node_ids);
+
+    // TODO: After upgrading to PHP 5.4.2, replace the two lines below with the commented line
+    // $max_depths = array_map(function($node_id) { return hexdec(explode('-', $node_id)[0]); }, $node_ids);
+    $max_depths = array_map(function($node_id) {
+      $pair = explode('-', $node_id);
+      return hexdec($pair[0]);
+    }, $node_ids);
+
     foreach ($max_depths as &$max_depth) { $max_depth += $depth; }
     $sqls = array_fill(0, count($node_ids), sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE));
     $sql = implode(' UNION ', $sqls).$this->nodesOrderBy;

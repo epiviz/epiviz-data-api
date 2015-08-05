@@ -35,6 +35,7 @@ function is_assoc(array &$array=null) {
 
 
 /**
+ * TODO: After upgrading to PHP 5.4.2, uncomment the callable attribute for cmp
  * Searches the specified array of ints for the specified value using the
  * binary search algorithm.  The array must be sorted prior to making this call.  If it
  * is not sorted, the results are undefined.  If the array contains
@@ -55,7 +56,7 @@ function is_assoc(array &$array=null) {
  *         that this guarantees that the return value will be &gt;= 0 if
  *         and only if the key is found.
  */
-function binary_search($needle, array $haystack, callable $cmp = null, $from_index = null, $to_index = null) {
+function binary_search($needle, array $haystack, /* callable */ $cmp = null, $from_index = null, $to_index = null) {
   if ($cmp === null) {
     $cmp = function($v1, $v2) {
       if ($v1 < $v2) { return -1; }

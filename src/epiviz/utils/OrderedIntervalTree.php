@@ -118,7 +118,9 @@ class OrderedIntervalTree {
     $this->intervals = &$intervals;
   }
 
-  private static function orderTreeNodes(IntervalNode $root) {
+  // TODO: After upgrading to PHP 5.4.2, replace the line(s) below with the commented line(s)
+  //private static function orderTreeNodes(IntervalNode $root) {
+  public static function orderTreeNodes(IntervalNode $root) {
     if (empty($root->children)) { return; }
 
     $start = $root->start;
@@ -160,7 +162,9 @@ class OrderedIntervalTree {
     });
   }
 
-  private static function copyIntervalHierarchy(IntervalNode $node) {
+  // TODO: After upgrading to PHP 5.4.2, replace the line(s) below with the commented line(s)
+  // private static function copyIntervalHierarchy(IntervalNode $node) {
+  public static function copyIntervalHierarchy(IntervalNode $node) {
     $copy = new IntervalNode(
       $node->start,
       $node->end,
