@@ -57,4 +57,24 @@ class Node {
   public function lineage() { return $this->lineage; }
 
   public function lineageLabel() { return $this->lineageLabel; }
+
+  public function parentLabel() {
+    $lineageLabels = explode(',', $this->lineageLabel);
+    if ($this->depth >= 1) {
+      return $lineageLabels[$this->depth - 1];
+    }
+    return null;
+  }
+
+  public function ancestorId($depth) {
+    if ($depth > $this->depth || $depth < 0) { return null; }
+    $lineageIds = explode(',', $this->lineage);
+    return $lineageIds[$depth];
+  }
+
+  public function ancestorLabel($depth) {
+    if ($depth > $this->depth || $depth < 0) { return null; }
+    $lineageLabels = explode(',', $this->lineageLabel);
+    return $lineageLabels[$depth];
+  }
 }

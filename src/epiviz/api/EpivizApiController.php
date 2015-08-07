@@ -722,7 +722,7 @@ class EpivizApiController {
    * @return Node
    */
   public function getHierarchy($depth, $node_id=null, array $selection=null, array $order=null) {
-    if ($node_id === null) { $node_id = '0-0'; }
+    if ($node_id == null) { $node_id = '0-0'; }
 
     // TODO: After upgrading to PHP 5.4.2, replace the two lines below with the commented line
     // $node_depth = hexdec(explode('-', $node_id)[0]);
@@ -732,6 +732,7 @@ class EpivizApiController {
     $max_depth = $node_depth + $depth;
     $sql = sprintf($this->hierarchyQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE).$this->nodesOrderBy;
     $stmt = $this->db->prepare($sql);
+
     $stmt->execute(array(
       '%'.$node_id.'%',
       $max_depth
@@ -765,7 +766,14 @@ class EpivizApiController {
       });
     });
 
-    return $root;
+    $parent = null;
+    if ($root->depth == 0) { $parent = $root; }
+    else {
+      $parent = $this->getNodes(array($root->parentId))[$root->parentId];
+      $parent->children = array($root);
+    }
+
+    return $parent;
   }
 
   /**
