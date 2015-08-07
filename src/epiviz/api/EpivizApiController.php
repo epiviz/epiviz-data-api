@@ -769,7 +769,10 @@ class EpivizApiController {
     $parent = null;
     if ($root->depth == 0) { $parent = $root; }
     else {
-      $parent = $this->getNodes(array($root->parentId))[$root->parentId];
+      // TODO: After upgrading to PHP 5.4.2, replace the two lines below with the commented line
+      $parents = $this->getNodes(array($root->parentId));
+      $parent = $parents[$root->parentId];
+      //$parent = $this->getNodes(array($root->parentId))[$root->parentId];
       $parent->children = array($root);
     }
 
