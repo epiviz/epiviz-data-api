@@ -432,6 +432,8 @@ class EpivizApiController {
           $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()), $selection_node->lineage());
         }
 
+        $index_collapse = 0 + $r[0] - $selection_node_index - 1;
+
         list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
         $selection_node = idx($selection_nodes, $selection_node_id);
 
@@ -442,8 +444,6 @@ class EpivizApiController {
 
       $r[0] = 0 + $r[0] - $index_collapse;
       $ret->addDbRecord($r);
-
-      if ($ret->count() == 1) { $ret->globalStartIndex -= $index_collapse; }
     }
 
     if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE &&

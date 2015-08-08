@@ -183,6 +183,8 @@ class RowCollection implements IntervalCollection {
       }
       $this->metadata['lineage'][] = $lineage;
     }
+
+    ++$this->count;
   }
 
   /**
