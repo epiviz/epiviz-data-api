@@ -62,7 +62,7 @@ class OrderedIntervalTree {
         if ($e1->isStart xor $e2->isStart) {
           $ret = ($e1->isStart) ? 1 : -1;
         } else {
-          $ret = $e1->intervalNode->data->depth - $e2->intervalNode->data->depth;
+          $ret = signum($e1->intervalNode->data->depth - $e2->intervalNode->data->depth);
         }
       }
       return $ret;
@@ -138,7 +138,7 @@ class OrderedIntervalTree {
     array_walk($nodes_by_parent, function(array &$nodes) {
       $unsorted = $nodes;
       usort($nodes, function(IntervalNode $n1, IntervalNode $n2) {
-        return $n1->data->order - $n2->data->order;
+        return signum($n1->data->order - $n2->data->order);
       });
 
       $n = count($nodes);
@@ -148,7 +148,7 @@ class OrderedIntervalTree {
     });
 
     usort($root->children, function(IntervalNode $n1, IntervalNode $n2) {
-      return $n1->start - $n2->start;
+      return signum($n1->start - $n2->start);
     });
 
     array_walk($root->children, function(IntervalNode $node) use (&$start) {

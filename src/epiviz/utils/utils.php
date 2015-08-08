@@ -25,16 +25,6 @@ function is_assoc(array &$array=null) {
 }
 
 /**
- * Searches the specified array of ints for the specified value using the
- * binary search algorithm.  The array must be sorted (as
- * by the {@link #sort(int[])} method) prior to making this call.  If it
- * is not sorted, the results are undefined.  If the array contains
- * multiple elements with the specified value, there is no guarantee which
- * one will be found.
- *
-
-
-/**
  * TODO: After upgrading to PHP 5.4.2, uncomment the callable attribute for cmp
  * Searches the specified array of ints for the specified value using the
  * binary search algorithm.  The array must be sorted prior to making this call.  If it
@@ -87,9 +77,9 @@ function binary_search($needle, array $haystack, /* callable */ $cmp = null, $fr
 }
 
 /**
- * @param $val
- * @param $min
- * @param $max
+ * @param float $val
+ * @param float|null $min
+ * @param float|null $max
  * @return bool
  */
 function between($val, $min = null, $max = null) {
@@ -97,4 +87,13 @@ function between($val, $min = null, $max = null) {
     ($min === null && $val < $max) ||
     ($max === null && $min <= $val) ||
     ($min <= $val && $val < $max);
+}
+
+/**
+ * @param float $val
+ * @return int
+ */
+function signum($val) {
+  return ($val == 0) ? 0 :
+    (($val < 0) ? -1 : 1);
 }

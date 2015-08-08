@@ -282,7 +282,7 @@ class EpivizApiController {
     });
   }
 
-  private function calcSelectionNodeIndexes(array &$selection_nodes, $start=null, $end=null) {
+  private function calcSelectionNodeIndexes(array &$selection_nodes, array &$selection, $start=null, $end=null) {
     // Compute updated indexes for selection nodes
     $index_collapse = 0;
     $start_index_collapse = null;
@@ -360,7 +360,7 @@ class EpivizApiController {
 
     $selection_nodes = $this->extractSelectionNodes($nodes, $selection);
     $in_range_selection_nodes = $this->filterOutOfRangeSelectionNodes($selection_nodes, $start, $end);
-    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $start, $end);
+    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $selection, $start, $end);
 
     // Build correct select intervals
     $cond = implode(' OR ', array_fill(0, 1+count($in_range_selection_nodes),
@@ -429,12 +429,15 @@ class EpivizApiController {
 
       while ($selection_node !== null && $s >= $selection_node->end) {
         if ($selection_node->selectionType === SelectionType::NODE) {
-          $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()));
+          $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()), $selection_node->lineage());
         }
 
         list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
         $selection_node = idx($selection_nodes, $selection_node_id);
-        $index_collapse = $selection_node->leafIndex - $selection_node_index;
+
+        if ($selection_node !== null) {
+          $index_collapse = $selection_node->leafIndex - $selection_node_index;
+        }
       }
 
       $r[0] = 0 + $r[0] - $index_collapse;
@@ -443,8 +446,9 @@ class EpivizApiController {
       if ($ret->count() == 1) { $ret->globalStartIndex -= $index_collapse; }
     }
 
-    if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE) {
-      $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()));
+    if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE &&
+        $selection_node->end > $start && $selection_node->start < $end) {
+      $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()), $selection_node->lineage());
     }
 
     while (list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes)) {
@@ -452,7 +456,7 @@ class EpivizApiController {
       if ($selection_node->start >= $end) { break; }
 
       if ($selection_node->selectionType === SelectionType::NODE) {
-        $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()));
+        $ret->add($selection_node_index, $selection_node->start, $selection_node->end, get_object_vars($selection_node), explode(',', $selection_node->lineageLabel()), $selection_node->lineage());
       }
     }
 
@@ -508,7 +512,7 @@ class EpivizApiController {
       }
     }
 
-    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $start, $end);
+    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $selection, $start, $end);
 
     $cond_selection_nodes = array_filter($in_range_selection_nodes, function(Node $node) { return $node->selectionType === SelectionType::NONE; });
 
@@ -589,7 +593,10 @@ class EpivizApiController {
 
         list($selection_node_id, $selection_node_index) = each($selection_nodes_indexes);
         $selection_node = idx($selection_nodes, $selection_node_id);
-        $index_collapse = $selection_node->leafIndex - $selection_node_index;
+
+        if ($selection_node !== null) {
+          $index_collapse = $selection_node->leafIndex - $selection_node_index;
+        }
       }
 
       $ret->add($r[0] == null ? 0 : round(0 + $r[0], 3), 0 + $r[1] - $index_collapse, $s, $e);
@@ -597,7 +604,8 @@ class EpivizApiController {
       if ($ret->count() == 1) { $ret->globalStartIndex -= $index_collapse; }
     }
 
-    if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE) {
+    if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE &&
+        $selection_node->end > $start && $selection_node->start < $end) {
       $ret->add($agg_func->aggregate($vals), $selection_node_index, $selection_node->start, $selection_node->end);
       $vals = array();
     }
@@ -683,7 +691,9 @@ class EpivizApiController {
         $metadata_cols[] = $col;
       }
     }
-    $metadata_cols = array_merge($metadata_cols, $this->getLevels());
+    $levels = $this->getLevels();
+    $metadata_cols = array_merge($metadata_cols, $levels);
+    if (!empty($levels)) { $metadata_cols[] = 'lineage'; }
 
     $result = array(
       'id' => array(),
@@ -762,7 +772,7 @@ class EpivizApiController {
     EpivizApiController::dfs($root, function(&$node) {
       if (empty($node->children)) { return; }
       usort($node->children, function(Node $c1, Node $c2) {
-        return $c1->order - $c2->order;
+        return signum($c1->order - $c2->order);
       });
     });
 
@@ -774,6 +784,7 @@ class EpivizApiController {
       $parent = $parents[$root->parentId];
       //$parent = $this->getNodes(array($root->parentId))[$root->parentId];
       $parent->children = array($root);
+      $parent->selectionType = idx($selection, $parent->id, SelectionType::LEAVES);
     }
 
     return $parent;
@@ -832,7 +843,7 @@ class EpivizApiController {
       EpivizApiController::dfs($node, function(Node &$node) {
         if (empty($node->children)) { return; }
         usort($node->children, function(Node $c1, Node $c2) {
-          return $c1->order - $c2->order;
+          return signum($c1->order - $c2->order);
         });
       });
       $ret[$node_id] = $node;

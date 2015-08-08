@@ -99,6 +99,7 @@ class RowCollection implements IntervalCollection {
     if (empty($levels)) { $levels = array(); }
 
     $metadata_cols = array_merge($metadata_cols, $levels);
+    if (!empty($levels)) { $metadata_cols[] = 'lineage'; }
     if (!empty($metadata_cols)) {
       $this->metadata = array();
       foreach ($metadata_cols as $col) {
@@ -143,6 +144,7 @@ class RowCollection implements IntervalCollection {
       foreach ($this->levels as $level => $label) {
         $this->metadata[$label][] = idx($lineage_labels, $level, null);
       }
+      $this->metadata['lineage'][] = $lineage;
     }
 
     ++$this->count;
@@ -154,8 +156,9 @@ class RowCollection implements IntervalCollection {
    * @param int $end
    * @param array $metadata
    * @param array $lineage_labels
+   * @param string $lineage
    */
-  public function add($index, $start, $end=null, array $metadata=null, array $lineage_labels=null) {
+  public function add($index, $start, $end=null, array $metadata=null, array $lineage_labels=null, $lineage) {
     if ($this->count == 0) {
       $this->globalStartIndex = $index;
     }
@@ -178,6 +181,7 @@ class RowCollection implements IntervalCollection {
       foreach ($this->levels as $level => $label) {
         $this->metadata[$label][] = idx($lineage_labels, $level, null);
       }
+      $this->metadata['lineage'][] = $lineage;
     }
   }
 
