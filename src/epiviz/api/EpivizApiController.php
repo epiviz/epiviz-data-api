@@ -39,6 +39,10 @@ class EpivizApiController {
   private $hierarchyQueryFormat;
   private $nodesQueryFormat;
   private $nodesOrderBy;
+  private $siblingsQueryFormat;
+  private $parentIdIn;
+  private $idIn;
+  private $depthIn;
   private $db;
   private $tablesColumns = array();
   private $minVal = null;
@@ -86,8 +90,11 @@ class EpivizApiController {
 
     $this->siblingsQueryFormat =
       'SELECT `id`, `%1$s`.`label`, `%1$s`.`depth`, `parentId`, `lineage`, `start`, `end`, `partition`, `nchildren`, `%2$s`.`label` AS `taxonomy`, `leafIndex`, `nleaves`, `order`, `lineageLabel` '
-      .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE `parentId` IN '
-      .'(SELECT `parentId` FROM `%1$s` WHERE `id` IN (%3$s)) OR `id` IN (%3$s) ';
+      .'FROM `%1$s` JOIN `%2$s` ON `%1$s`.`depth` = `%2$s`.`depth` WHERE ';
+
+    $this->parentIdIn = '`parentId` IN (SELECT `parentId` FROM `%1$s` WHERE `id` IN (%2$s)) ';
+    $this->idIn = '`id` IN (%1$s) ';
+    $this->depthIn = '`%1$s`.`depth` IN (%2$s) ';
 
     $this->nodesOrderBy = 'ORDER BY `depth`, `partition`, `start`, `end` ';
 
@@ -213,16 +220,42 @@ class EpivizApiController {
   /**
    * Gets the nodes corresponding to the given ids, and all their siblings
    * @param array $node_ids
+   * @param array $selected_levels
    * @return array
    */
-  public function getSiblings(array $node_ids = null) {
-    if (empty($node_ids)) { return array(); }
+  public function getSiblings(array $node_ids = null, array $selected_levels=null) {
+    if (empty($node_ids) && empty($selected_levels)) { return array(); }
 
-    $in_query = implode(',', array_fill(0, count($node_ids), '?'));
-    $sql = sprintf($this->siblingsQueryFormat, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE, $in_query)
+    $format = $this->siblingsQueryFormat;
+    $params = array();
+    $conditions = array();
+    if (!empty($node_ids)) {
+      $in_query = implode(',', array_fill(0, count($node_ids), '?'));
+      $params = array_merge($node_ids, $node_ids);
+      $conditions[] = sprintf($this->parentIdIn, EpivizApiController::HIERARCHY_TABLE, $in_query);
+      $conditions[] = sprintf($this->idIn, $in_query);
+    }
+
+    $depths = array();
+    if (!empty($selected_levels)) {
+      foreach ($selected_levels as $level => $selection) {
+        if ($selection != SelectionType::LEAVES) {
+          $depths[] = $level;
+        }
+      }
+    }
+
+    if (!empty($depths)) {
+      $depth_in = implode(',', array_fill(0, count($depths), '?'));
+      $conditions[] = sprintf($this->depthIn, EpivizApiController::HIERARCHY_TABLE, $depth_in);
+      $params = array_merge($params, $depths);
+    }
+
+    $sql = sprintf($format . implode(' OR ', $conditions), EpivizApiController::HIERARCHY_TABLE, EpivizApiController::LEVELS_TABLE)
       .$this->nodesOrderBy;
+
     $stmt = $this->db->prepare($sql);
-    $stmt->execute(array_merge($node_ids, $node_ids));
+    $stmt->execute($params);
 
     $nodes = array();
 
@@ -234,27 +267,28 @@ class EpivizApiController {
     return $nodes;
   }
 
-  private function extractSelectionNodes(array &$nodes, array &$selection=array()) {
+  private function extractSelectionNodes(array &$nodes, array &$selection=array(), array &$selected_levels=null) {
     // Selection
-    $selection_node_ids = array_keys($selection);
     $selection_nodes = array();
-    foreach ($selection_node_ids as $node_id) {
-      // Discard nodes set to LEAVES
-      $selection_type = idx($selection, $node_id);
-      if ($selection_type === SelectionType::LEAVES) {
-        unset($selection[$node_id]);
+
+    foreach ($nodes as $node) {
+      $node_selection = idx($selected_levels, $node->depth, idx($selection, $node->id, SelectionType::LEAVES));
+      if ($node_selection == SelectionType::LEAVES) {
+        // Discard nodes set to LEAVES
+        unset($selection[$node->id]);
+        unset($selected_levels[$node->depth]);
         continue;
       }
-      $node = idx($nodes, $node_id);
-      if ($node !== null) {
-        $node->selectionType = $selection_type;
-        $selection_nodes[$node_id] = $node;
-      }
+
+      $node->selectionType = $node_selection;
+      $selection_nodes[$node->id] = $node;
     }
 
     // Discard nodes included in larger ranges of ancestors
     uasort($selection_nodes, function(Node $n1, Node $n2) {
-      return $n1->start - $n2->start;
+      $ret = $n1->start - $n2->start;
+      if ($ret != 0) { return $ret; }
+      return $n1->depth - $n2->depth;
     });
 
     $selection_node_ids = array_keys($selection_nodes);
@@ -282,7 +316,7 @@ class EpivizApiController {
     });
   }
 
-  private function calcSelectionNodeIndexes(array &$selection_nodes, array &$selection, $start=null, $end=null) {
+  private function calcSelectionNodeIndexes(array &$selection_nodes, array &$selection, array $selected_levels=null, $start=null, $end=null) {
     // Compute updated indexes for selection nodes
     $index_collapse = 0;
     $start_index_collapse = null;
@@ -295,7 +329,9 @@ class EpivizApiController {
         $start_index_collapse = $index_collapse;
       }
       $index_collapse += $node->nleaves;
-      if (idx($selection, $node_id) === SelectionType::NODE) {
+
+      $node_selection = idx($selected_levels, $node->depth, idx($selection, $node_id, SelectionType::LEAVES));
+      if ($node_selection === SelectionType::NODE) {
         --$index_collapse;
       }
     }
@@ -331,9 +367,11 @@ class EpivizApiController {
    * @param bool $offset_location
    * @param array $selection
    * @param array $order
+   * @param array $selected_levels
    * @return RowCollection
    */
-  public function getRows($start, $end, $partition=null, array $metadata=null, $retrieve_index=true, $retrieve_end=true, $offset_location=false, array $selection=null, array $order=null) {
+  public function getRows($start, $end, $partition=null, array $metadata=null, $retrieve_index=true, $retrieve_end=true,
+                          $offset_location=false, array $selection=null, array $order=null, array $selected_levels=null) {
     if ($selection === null) { $selection = array(); }
     if ($order === null) { $order = array(); }
     $location_cols = array_flip(array('index', 'partition', 'start', 'end'));
@@ -356,11 +394,12 @@ class EpivizApiController {
     }
 
     $node_ids = array_keys($selection + $order);
-    $nodes = $this->getSiblings($node_ids);
+    $nodes = $this->getSiblings($node_ids, $selected_levels);
 
-    $selection_nodes = $this->extractSelectionNodes($nodes, $selection);
+    $selection_nodes = $this->extractSelectionNodes($nodes, $selection, $selected_levels);
     $in_range_selection_nodes = $this->filterOutOfRangeSelectionNodes($selection_nodes, $start, $end);
-    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $selection, $start, $end);
+
+    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $selection, $selected_levels, $start, $end);
 
     // Build correct select intervals
     $cond = implode(' OR ', array_fill(0, 1+count($in_range_selection_nodes),
@@ -481,9 +520,11 @@ class EpivizApiController {
    * @param array $selection
    * @param array $order
    * @param string $aggregation_function
+   * @param array $selected_levels
    * @return ValueCollection
    */
-  public function getValues($measurement, $start, $end, $partition=null, array $selection=null, array $order=null, $aggregation_function=null) {
+  public function getValues($measurement, $start, $end, $partition=null, array $selection=null, array $order=null,
+                            $aggregation_function=null, array $selected_levels=null) {
     if ($selection === null) { $selection = array(); }
     if ($order === null) { $order = array(); }
 
@@ -496,9 +537,9 @@ class EpivizApiController {
     }
 
     $node_ids = array_keys($selection + $order);
-    $nodes = $this->getSiblings($node_ids);
+    $nodes = $this->getSiblings($node_ids, $selected_levels);
 
-    $selection_nodes = $this->extractSelectionNodes($nodes, $selection);
+    $selection_nodes = $this->extractSelectionNodes($nodes, $selection, $selected_levels);
     $in_range_selection_nodes = $this->filterOutOfRangeSelectionNodes($selection_nodes, $start, $end);
 
     foreach ($in_range_selection_nodes as $node) {
@@ -512,7 +553,7 @@ class EpivizApiController {
       }
     }
 
-    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $selection, $start, $end);
+    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $selection, $selected_levels, $start, $end);
 
     $cond_selection_nodes = array_filter($in_range_selection_nodes, function(Node $node) { return $node->selectionType === SelectionType::NONE; });
 
@@ -729,9 +770,10 @@ class EpivizApiController {
    * @param string $node_id
    * @param array $selection
    * @param array $order
+   * @param array $selected_levels
    * @return Node
    */
-  public function getHierarchy($depth, $node_id=null, array $selection=null, array $order=null) {
+  public function getHierarchy($depth, $node_id=null, array $selection=null, array $order=null, array $selected_levels=null) {
     if ($node_id == null) { $node_id = '0-0'; }
 
     // TODO: After upgrading to PHP 5.4.2, replace the two lines below with the commented line
@@ -754,7 +796,7 @@ class EpivizApiController {
       $node = EpivizApiController::createNodeFromDbRecord($r);
       $nodes[$node->id] = $node;
       $id = $node->id;
-      $node->selectionType = idx($selection, $id, SelectionType::LEAVES);
+      $node->selectionType = idx($selected_levels, $node->depth, idx($selection, $id, SelectionType::LEAVES));
 
       if ($id == $node_id) {
         $root = $node;
@@ -784,7 +826,7 @@ class EpivizApiController {
       $parent = $parents[$root->parentId];
       //$parent = $this->getNodes(array($root->parentId))[$root->parentId];
       $parent->children = array($root);
-      $parent->selectionType = idx($selection, $parent->id, SelectionType::LEAVES);
+      $parent->selectionType = idx($selected_levels, $parent->depth, idx($selection, $parent->id, SelectionType::LEAVES));
     }
 
     return $parent;
@@ -794,11 +836,11 @@ class EpivizApiController {
    * @param int $depth
    * @param array $node_ids
    * @param array $selection
-   * @param array $selection
    * @param array $order
+   * @param array $selected_levels
    * @return array
    */
-  public function getHierarchies($depth, array $node_ids, array $selection=null, array $selection=null, array $order=null) {
+  public function getHierarchies($depth, array $node_ids, array $selection=null, array $order=null, array $selected_levels=null) {
 
     // TODO: After upgrading to PHP 5.4.2, replace the two lines below with the commented line
     // $max_depths = array_map(function($node_id) { return hexdec(explode('-', $node_id)[0]); }, $node_ids);
@@ -823,7 +865,7 @@ class EpivizApiController {
     while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
       $node = EpivizApiController::createNodeFromDbRecord($r);
       $id = $node->id;
-      $node->selectionType = idx($selection, $id, SelectionType::LEAVES);
+      $node->selectionType = idx($selected_levels, $node->depth, idx($selection, $id, SelectionType::LEAVES));
 
       $node_map[$id] = $node;
 

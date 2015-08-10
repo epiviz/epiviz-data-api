@@ -62,7 +62,8 @@ $req_controller->registerMethod(
     'retrieve_end' => array('type' => 'boolean', 'optional' => true, 'default' => true),
     'offset_location' => array('type' => 'boolean', 'optional' => true, 'default' => false),
     'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
-    'order' => array('type' => 'object', 'optional' => true, 'default' => null)
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'selectedLevels' => array('type' => 'array', 'optional' => true, 'default' => null)
   ),
   array(
     'globalStartIndex' => 'number',
@@ -87,7 +88,8 @@ $req_controller->registerMethod(
     'partition' => array('type' => 'string', 'optional' => true, 'default' => null),
     'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
     'order' => array('type' => 'object', 'optional' => true, 'default' => null),
-    'aggregationFunction' => array('type' => 'string', 'optional' => true, 'default' => 'average')
+    'aggregationFunction' => array('type' => 'string', 'optional' => true, 'default' => 'average'),
+    'selectedLevels' => array('type' => 'array', 'optional' => true, 'default' => null)
   ),
   array(
     'globalStartIndex' => 'number',
@@ -128,7 +130,8 @@ $req_controller->registerMethod(
     'depth' => 'number',
     'nodeId' => array('type' => 'string', 'optional' => true, 'default' => null),
     'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
-    'order' => array('type' => 'object', 'optional' => true, 'default' => null)
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'selectedLevels' => array('type' => 'array', 'optional' => true, 'default' => null)
   ),
   array(
     'id' => 'string',
