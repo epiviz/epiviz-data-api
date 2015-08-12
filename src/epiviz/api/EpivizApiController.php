@@ -162,8 +162,8 @@ class EpivizApiController {
       0 + $r[8], // nchildren
       null,
       $r[7], // partition
-      $r[5], // start
-      $r[6], // end
+      0 + $r[5], // start
+      0 + $r[6], // end
       0 + $r[10], // leafIndex
       0 + $r[11], // nleaves
       0 + $r[12], // order
