@@ -9,6 +9,10 @@ namespace epiviz\models;
 
 use epiviz\models\RowCollection\Row;
 
+/**
+ * Class RowCollection
+ * @package epiviz\models
+ */
 class RowCollection implements IntervalCollection {
   /**
    * @var array

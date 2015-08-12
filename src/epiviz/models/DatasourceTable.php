@@ -186,11 +186,12 @@ class DatasourceTable {
    */
   public function addAggregate(Node $selection_node, array $value_collections, ValueAggregator $aggregate_func, $start_index, $end_index) {
     $node_metadata = get_object_vars($selection_node);
+    $self = $this;
     array_walk($value_collections,
       function(ValueCollection &$values, $measurement)
-      use ($start_index, $end_index, $aggregate_func, $selection_node, $node_metadata) {
+      use ($self, $start_index, $end_index, $aggregate_func, $selection_node, $node_metadata) {
         $value = $values->aggregate($start_index, $end_index, $aggregate_func);
-        $this->addEntry($selection_node->leafIndex, $selection_node->start, $selection_node->end, $value, $measurement,
+        $self->addEntry($selection_node->leafIndex, $selection_node->start, $selection_node->end, $value, $measurement,
           $node_metadata, $selection_node->lineageLabel(), $selection_node->lineage());
       });
   }
