@@ -48,9 +48,9 @@ function is_assoc(array &$array=null) {
  */
 function binary_search($needle, array $haystack, /* callable */ $cmp = null, $from_index = null, $to_index = null) {
   if ($cmp === null) {
-    $cmp = function($v1, $v2) {
-      if ($v1 < $v2) { return -1; }
-      if ($v1 > $v2) { return 1; }
+    $cmp = function($v) use ($needle) {
+      if ($needle < $v) { return -1; }
+      if ($needle > $v) { return 1; }
       return 0;
     };
   }
@@ -96,4 +96,34 @@ function between($val, $min = null, $max = null) {
 function signum($val) {
   return ($val == 0) ? 0 :
     (($val < 0) ? -1 : 1);
+}
+
+/**
+ * TODO: After upgrading to PHP 5.5, switch to the internal boolval
+ * @param string|bool $var
+ * @return bool
+ */
+function boolval($var) {
+  if (is_bool($var)) { return $var; }
+  switch ($var) {
+    case 'true': return true;
+    case 'false': return false;
+    default: throw new InvalidArgumentException('Cannot parse value '.$var);
+  }
+}
+
+/**
+ * @param string $sql
+ * @param array $params
+ * @return string
+ */
+function prepared_sql($sql, array $params=null) {
+  if (empty($params)) { return $sql; }
+
+  $ret = $sql;
+  foreach ($params as $p) {
+    $ret = preg_replace('/\?/', json_encode($p), $ret, 1);
+  }
+
+  return $ret;
 }

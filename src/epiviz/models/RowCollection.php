@@ -7,6 +7,8 @@
 
 namespace epiviz\models;
 
+use epiviz\models\RowCollection\Row;
+
 class RowCollection implements IntervalCollection {
   /**
    * @var array
@@ -76,6 +78,7 @@ class RowCollection implements IntervalCollection {
    * @param bool $store_end
    */
   public function __construct(array $metadata_cols = null, array $levels = null, $use_offset = false, $store_index = true, $store_end = true) {
+    $this->globalStartIndex = null;
     $this->metadataCols = $metadata_cols;
     $this->levels = $levels;
     $this->useOffset = $use_offset;
@@ -158,7 +161,7 @@ class RowCollection implements IntervalCollection {
    * @param array $lineage_labels
    * @param string $lineage
    */
-  public function add($index, $start, $end=null, array $metadata=null, array $lineage_labels=null, $lineage) {
+  public function add($index, $start, $end=null, array $metadata=null, array $lineage_labels=null, $lineage=null) {
     if ($this->count == 0) {
       $this->globalStartIndex = $index;
     }
@@ -177,11 +180,52 @@ class RowCollection implements IntervalCollection {
       }
     }
 
-    if (!empty($this->levels)) {
+    if (!empty($this->levels) && !empty($lineage_labels)) {
       foreach ($this->levels as $level => $label) {
         $this->metadata[$label][] = idx($lineage_labels, $level, null);
       }
-      $this->metadata['lineage'][] = $lineage;
+
+      if ($lineage !== null) {
+        $this->metadata['lineage'][] = $lineage;
+      }
+    }
+
+    ++$this->count;
+  }
+
+  /**
+   * @param Row $row
+   */
+  public function addRow(Row $row) {
+    if ($this->count == 0) {
+      $this->globalStartIndex = $row->index();
+    }
+    if ($this->storeIndex) {
+      $this->index[] = $row->index();
+    }
+
+    $this->start[] = $row->start();
+    if ($this->storeEnd) {
+      $this->end[] = $row->end();
+    }
+
+    $metadata = $row->parentCollection()->metadata;
+    $i = $row->i();
+    if (!empty($this->metadataCols)) {
+      foreach ($this->metadataCols as $col) {
+        $col_metadata = idx($metadata, $col);
+        $this->metadata[$col][] = $col_metadata !== null ? $col_metadata[$i] : null;
+      }
+    }
+
+    if (!empty($this->levels) && !empty($lineage_labels)) {
+      foreach ($this->levels as $level => $label) {
+        $col_metadata = idx($metadata, $label);
+        $this->metadata[$label][] = $col_metadata !== null ? $col_metadata[$i] : null;
+      }
+
+      $col_metadata = idx($metadata, 'lineage');
+      $this->metadata['lineage'][] = $col_metadata !== null ? $col_metadata[$i] : null;
     }
 
     ++$this->count;
@@ -203,11 +247,62 @@ class RowCollection implements IntervalCollection {
   public function storeEnd() { return $this->storeEnd; }
 
   /**
+   * @return bool
+   */
+  public function useOffset() { return $this->useOffset; }
+
+  /**
+   * @return array
+   */
+  public function metadataCols() { return $this->metadataCols; }
+
+  /**
+   * @return array
+   */
+  public function levels() { return $this->levels; }
+
+  /**
    * @param int $i
    * @return RowCollection\Row
    */
   public function get($i) {
     return new RowCollection\Row($this, $i);
+  }
+
+  /**
+   * @return RowCollection\Row|null
+   */
+  public function first() {
+    if ($this->count == 0) { return null; }
+    return $this->get(0);
+  }
+
+  /**
+   * @return RowCollection\Row|null
+   */
+  public function last() {
+    if ($this->count == 0) { return null; }
+    return $this->get($this->count - 1);
+  }
+
+  public function firstOverlap($start, $end) {
+    $low = 0;
+    $high = $this->count - 1;
+
+    $i = null;
+    while ($low <= $high) {
+      $mid = ($low + $high) >> 1;
+      if ($end <= $this->start[$mid]) {
+        $high = $mid - 1;
+      } else if ($start >= $this->end[$mid]) {
+        $low = $mid + 1;
+      } else {
+        $i = $mid;
+        $high = $mid - 1;
+      }
+    }
+
+    return $i !== null ? $this->get($i) : null;
   }
 
   /**
@@ -304,6 +399,8 @@ class Row implements Interval {
    */
   private $i;
 
+  private $metadataMap;
+
   /**
    * @param \epiviz\models\RowCollection $row_collection
    * @param int $i
@@ -341,4 +438,30 @@ class Row implements Interval {
    * @return string|int
    */
   public function metadata($col) { return $this->rowCollection->values['metadata'][$col][$this->i]; }
+
+  /**
+   * @return array
+   */
+  public function metadataMap() {
+    if ($this->metadataMap == null) {
+      $map = array();
+      foreach ($this->rowCollection->values as $col => $metadata_arr) {
+        $map[$col] = $metadata_arr[$this->i];
+      }
+      $this->metadataMap = $map;
+    }
+    return $this->metadataMap;
+  }
+
+  /**
+   * @return \epiviz\models\RowCollection
+   */
+  public function parentCollection() {
+    return $this->rowCollection;
+  }
+
+  /**
+   * @return int
+   */
+  public function i() { return $this->i; }
 }

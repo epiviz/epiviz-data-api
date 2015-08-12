@@ -7,6 +7,7 @@
 
 namespace epiviz\models;
 
+use epiviz\api\ValueAggregator;
 use epiviz\models\ValueCollection\ValueInterval;
 
 class ValueCollection implements IntervalCollection {
@@ -45,7 +46,7 @@ class ValueCollection implements IntervalCollection {
    */
   public function add($value, $index, $start, $end) {
     if ($this->globalStartIndex === null) { $this->globalStartIndex = $index; }
-    $this->values[] = $value;
+    $this->values[] = round($value, 3);
     $this->start[] = $start;
     $this->end[] = $end;
     ++$this->count;
@@ -73,6 +74,16 @@ class ValueCollection implements IntervalCollection {
    * @return ValueInterval
    */
   public function get($i) { return new ValueInterval($this, $i); }
+
+  /**
+   * @param int $start_index
+   * @param int $end_index
+   * @param ValueAggregator $aggregate_fun
+   * @return float
+   */
+  public function aggregate($start_index, $end_index, ValueAggregator $aggregate_fun) {
+    return $aggregate_fun->aggregate(array_slice($this->values, $start_index, $end_index - $start_index));
+  }
 
   /**
    * @param array $order

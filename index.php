@@ -58,9 +58,9 @@ $req_controller->registerMethod(
     'end' => 'number',
     'partition' => array('type' => 'string', 'optional' => true, 'default' => null),
     'metadata' => array('type' => 'array', 'optional' => true, 'default' => null),
-    'retrieve_index' => array('type' => 'boolean', 'optional' => true, 'default' => true),
-    'retrieve_end' => array('type' => 'boolean', 'optional' => true, 'default' => true),
-    'offset_location' => array('type' => 'boolean', 'optional' => true, 'default' => false),
+    'retrieveIndex' => array('type' => 'boolean', 'optional' => true, 'default' => true),
+    'retrieveEnd' => array('type' => 'boolean', 'optional' => true, 'default' => true),
+    'offsetLocation' => array('type' => 'boolean', 'optional' => true, 'default' => false),
     'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
     'order' => array('type' => 'object', 'optional' => true, 'default' => null),
     'selectedLevels' => array('type' => 'array', 'optional' => true, 'default' => null)
@@ -98,6 +98,31 @@ $req_controller->registerMethod(
   array(
     'request' => 'method=values&params[measurement]="700014391.V35.241827"&params[start]=2739&params[end]=2742&params[selection]={"2-26":0,"2-7db":1}&params[order]={"8-ab4":-1}',
     'response' => function() use ($api_controller) { return $api_controller->getValues('700014391.V35.241827', 2739, 2742, null, array('2-26'=>0, '2-7db'=>1), array('8-ab4'=>-1)); }
+  ));
+
+$req_controller->registerMethod(
+  'combined',
+  array(
+    'measurements' => 'array',
+    'start' => 'number',
+    'end' => 'number',
+    'partition' => array('type' => 'string', 'optional' => true, 'default' => null),
+    'metadata' => array('type' => 'array', 'optional' => true, 'default' => null),
+    'retrieveIndex' => array('type' => 'boolean', 'optional' => true, 'default' => true),
+    'retrieveEnd' => array('type' => 'boolean', 'optional' => true, 'default' => true),
+    'offsetLocation' => array('type' => 'boolean', 'optional' => true, 'default' => false),
+    'selection' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'order' => array('type' => 'object', 'optional' => true, 'default' => null),
+    'aggregationFunction' => array('type' => 'string', 'optional' => true, 'default' => 'average'),
+    'selectedLevels' => array('type' => 'array', 'optional' => true, 'default' => null)
+  ),
+  array(
+    'globalStartIndex' => 'number',
+    'values' => 'array'),
+  array($api_controller, 'getCombined'),
+  array(
+    'request' => 'TODO',
+    'response' => function() use ($api_controller) { return 'TODO';/*$api_controller->getCombined(array('700014391.V35.241827'), 2739, 2742, null, array('2-26'=>0, '2-7db'=>1), array('8-ab4'=>-1));*/ }
   ));
 
 $req_controller->registerMethod(

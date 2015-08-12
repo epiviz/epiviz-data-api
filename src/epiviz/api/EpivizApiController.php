@@ -7,6 +7,7 @@
 
 namespace epiviz\api;
 
+use epiviz\models\DatasourceTable;
 use epiviz\models\RowCollection;
 use epiviz\models\ValueCollection;
 use epiviz\utils\OrderedIntervalTree;
@@ -29,6 +30,7 @@ class EpivizApiController {
   const TEMP_ROWS = 'temp_rows';
   const TEMP_VALS = 'temp_vals';
   const TEMP_COLS = 'temp_cols';
+  const TEMP_HIERARCHY = 'temp_hierarchy';
 
   private $levelsQueryFormat;
   private $intervalQueryFormat;
@@ -405,10 +407,6 @@ class EpivizApiController {
     $cond = implode(' OR ', array_fill(0, 1+count($in_range_selection_nodes),
       sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
 
-    $fields = '`%1$s`.`index`, `%1$s`.`start`';
-    $metadata_cols_index = 2;
-    if ($retrieve_end) { $fields .= ', `%1$s`.`end`'; ++$metadata_cols_index; }
-
     $params = array();
     if ($partition != null) {
       $params[] = $partition;
@@ -436,6 +434,10 @@ class EpivizApiController {
     $params[] = $last_end;
     $params[] = $end;
 
+    $fields = '`%1$s`.`index`, `%1$s`.`start`';
+    $metadata_cols_index = 2;
+    if ($retrieve_end) { $fields .= ', `%1$s`.`end`'; ++$metadata_cols_index; }
+
     foreach ($metadata as $col) {
       $fields .= ', `%1$s`.`' . $col . '`';
     }
@@ -454,6 +456,7 @@ class EpivizApiController {
 
     $db->commit();
 
+    // TODO: Do not join with hierarchy table, but also make a temp table
     $sql = sprintf('SELECT %1$s FROM `%2$s` LEFT JOIN `%3$s` ON `%2$s`.`id` = `%3$s`.`id` ', $fields, EpivizApiController::TEMP_ROWS, EpivizApiController::HIERARCHY_TABLE);
 
     $stmt = $this->db->prepare($sql);
@@ -516,11 +519,11 @@ class EpivizApiController {
    * @param string $measurement
    * @param int $start
    * @param int $end
-   * @param string $partition
-   * @param array $selection
-   * @param array $order
-   * @param string $aggregation_function
-   * @param array $selected_levels
+   * @param string|null $partition
+   * @param array|null $selection
+   * @param array|null $order
+   * @param string|null $aggregation_function
+   * @param array|null $selected_levels
    * @return ValueCollection
    */
   public function getValues($measurement, $start, $end, $partition=null, array $selection=null, array $order=null,
@@ -668,6 +671,170 @@ class EpivizApiController {
       array_walk($order_nodes, function(Node &$node) use ($order) { $node->order = idx($order, $node->id, $node->order); });
 
       $ordered_interval_tree = new OrderedIntervalTree($order_nodes);
+      $ret = $ret->reorder($ordered_interval_tree->orderIntervals($ret));
+    }
+
+    return $ret;
+  }
+
+  /**
+   * @param array $measurements
+   * @param int $start
+   * @param int $end
+   * @param string|null $partition
+   * @param array|null $metadata
+   * @param bool $retrieve_index
+   * @param bool $retrieve_end
+   * @param bool $offset_location
+   * @param array|null $selection
+   * @param array|null $order
+   * @param string|null $aggregation_function
+   * @param array|null $selected_levels
+   * @return array
+   */
+  public function getCombined(array $measurements, $start, $end, $partition=null, array $metadata=null, $retrieve_index=true, $retrieve_end=true,
+                              $offset_location=false, array $selection=null, array $order=null,
+                              $aggregation_function=null, array $selected_levels=null) {
+
+    if ($selection === null) { $selection = array(); }
+    if ($order === null) { $order = array(); }
+
+    $location_cols = array_flip(array('index', 'partition', 'start', 'end'));
+    $columns = $this->getTableColumns(EpivizApiController::ROWS_TABLE);
+    if ($metadata != null) {
+      $safe_metadata_cols = array();
+      foreach ($metadata as $col) {
+        if (array_key_exists($col, $columns) && !array_key_exists($col, $location_cols)) {
+          $safe_metadata_cols[] = $col;
+        }
+      }
+      $metadata = $safe_metadata_cols;
+    } else {
+      $metadata = array();
+      foreach ($columns as $col => $_) {
+        if (!array_key_exists($col, $location_cols)) {
+          $metadata[] = $col;
+        }
+      }
+    }
+
+    $levels = $this->getLevels();
+
+    if ($aggregation_function == null) { $aggregation_function = 'average'; }
+    $agg_func = $this->aggregatorFactory->get($aggregation_function);
+
+    if (count($measurements) == 0) {
+      return DatasourceTable::createEmpty($measurements, $metadata, $levels, $offset_location, $retrieve_index, $retrieve_end);
+    }
+
+    $node_ids = array_keys($selection + $order);
+    $nodes = $this->getSiblings($node_ids, $selected_levels);
+
+    $selection_nodes = $this->extractSelectionNodes($nodes, $selection, $selected_levels);
+    $in_range_selection_nodes = $this->filterOutOfRangeSelectionNodes($selection_nodes, $start, $end);
+
+    foreach ($in_range_selection_nodes as $node) {
+      if ($node->selectionType == SelectionType::NODE) {
+        if ($node->start < $start) {
+          $start = $node->start;
+        }
+        if ($node->end > $end) {
+          $end = $node->end;
+        }
+      }
+    }
+
+    list($selection_nodes_indexes, $start_index_collapse) = $this->calcSelectionNodeIndexes($selection_nodes, $selection, $selected_levels, $start, $end);
+
+    $cond_selection_nodes = array_filter($in_range_selection_nodes, function(Node $node) { return $node->selectionType === SelectionType::NONE; });
+
+    // Build correct select intervals
+    $cond = implode(' OR ', array_fill(0, 1+count($cond_selection_nodes),
+      sprintf($this->intervalQueryFormat, EpivizApiController::ROWS_TABLE, $partition == null ? '`partition` IS NULL' : '`partition` = ?')));
+
+    $params = array();
+
+    if ($partition != null) {
+      $params[] = $partition;
+    }
+    $params[] = $start;
+    $last_end = $start;
+    foreach ($cond_selection_nodes as $node) {
+      $params[] = $node->start;
+      if ($partition != null) {
+        $params[] = $partition;
+      }
+      $params[] = $last_end;
+      $params[] = $node->start;
+
+      if ($partition != null) {
+        $params[] = $partition;
+      }
+      $params[] = $node->end;
+      $last_end = $node->end;
+    }
+
+    $params[] = $end;
+    if ($partition != null) {
+      $params[] = $partition;
+    }
+    $params[] = $last_end;
+    $params[] = $end;
+
+    $db = $this->db;
+    $db->beginTransaction();
+
+    $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_ROWS));
+    $db->prepare(sprintf('CREATE TEMPORARY TABLE `%1$s` ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE %3$s ORDER BY `index` ASC) ',
+      EpivizApiController::TEMP_ROWS, EpivizApiController::ROWS_TABLE, $cond))->execute($params);
+
+    $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_HIERARCHY));
+    $db->query(sprintf(
+      'CREATE TEMPORARY TABLE `%1$s` (PRIMARY KEY (`id`)) ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE `id` IN (SELECT `id` FROM `%3$s`) %4$s) ',
+      EpivizApiController::TEMP_HIERARCHY, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::TEMP_ROWS, $this->nodesOrderBy));
+
+    $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_COLS));
+    $db->prepare(sprintf(
+      'CREATE TEMPORARY TABLE `%1$s` ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE `id` IN (%3$s)) ',
+      EpivizApiController::TEMP_COLS, EpivizApiController::COLS_TABLE, implode(',', array_fill(0, count($measurements), '?'))))
+      ->execute($measurements);
+
+    $db->commit();
+
+    $fields = '`%1$s`.`index` AS `row`, `%1$s`.`start`';
+    $fields .= ', `%4$s`.`lineagelabel`, `%4$s`.`lineage`, `%4$s`.`depth`';
+    $fields .= ', `%3$s`.`val`, `%2$s`.`index` AS `col`, `%2$s`.`id` AS `measurement`';
+    $fields .= ', `%1$s`.`end`';
+    foreach ($metadata as $col) {
+      $fields .= ', `%1$s`.`' . $col . '`';
+    }
+
+    $sql = sprintf(
+      'SELECT '.$fields.' '
+      .'FROM (`%1$s` JOIN `%4$s` ON `%1$s`.`id` = `%4$s`.`id`) JOIN `%2$s` '
+      .'JOIN `%3$s` ON  (`%1$s`.`index` = `%3$s`.`row` AND `%2$s`.`index` = `%3$s`.`col`) '
+      .'ORDER BY `%1$s`.`index` ASC ',
+      EpivizApiController::TEMP_ROWS, EpivizApiController::TEMP_COLS, EpivizApiController::VALUES_TABLE, EpivizApiController::TEMP_HIERARCHY);
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute();
+
+    $unprocessed_tbl = DatasourceTable::createEmpty($measurements, $metadata, $levels, $offset_location, $retrieve_index, $retrieve_end);
+    while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
+      $unprocessed_tbl->addDbRecord($r);
+    }
+    $unprocessed_tbl->finalize();
+
+    $ret = $unprocessed_tbl->aggregate($selection_nodes, $agg_func, $start, $end);
+
+    // Apply ordering
+    if (!empty($order)) {
+      $parent_ids = array_flip(array_map(function($node_id) use ($nodes) { return $nodes[$node_id]->parentId; }, array_keys($order)));
+      $order_nodes = array_filter($nodes, function(Node $node) use ($parent_ids) { return array_key_exists($node->parentId, $parent_ids); });
+      array_walk($order_nodes, function(Node &$node) use ($order) { $node->order = idx($order, $node->id, $node->order); });
+
+      $ordered_interval_tree = new OrderedIntervalTree($order_nodes);
+
       $ret = $ret->reorder($ordered_interval_tree->orderIntervals($ret));
     }
 
