@@ -14,7 +14,7 @@ use epiviz\api\ValueAggregatorFactory;
  * Class DatasourceTable
  * @package epiviz\models
  */
-class DatasourceTable {
+class DatasourceTable implements IntervalCollection {
   /**
    * @var RowCollection
    */
@@ -228,6 +228,13 @@ class DatasourceTable {
    * @return int
    */
   public function count() { return $this->rowCollection->count(); }
+
+  /**
+   * Implementation of IntervalCollection
+   * @param int $i
+   * @return RowCollection\Row
+   */
+  public function get($i) { return $this->getRow($i); }
 
   /**
    * @param array $selection_nodes
