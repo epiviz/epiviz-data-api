@@ -114,10 +114,15 @@ class DatasourceTable {
    * @param array $r
    */
   public function addDbRecord(array $r) {
+    $metadata = array_flip($this->metadataCols);
+    array_walk($metadata, function(&$v, $col) use ($r) {
+      $v = $r[$v + 9];
+    });
+
     $last_row = $this->rowCollection->last();
     if ($last_row === null || $last_row->index() < $r[0]) {
       $this->rowCollection->add($r[0], $r[1], $r[8],
-        array_slice($r, 9), explode(',', $r[2]), $r[3]);
+        $metadata, explode(',', $r[2]), $r[3]);
     }
 
     $values = &$this->valueCollections[$r[7]];
@@ -254,7 +259,7 @@ class DatasourceTable {
         $last_i = $i;
       }
 
-      if ($selection_node->end > $row->start() && $selection_node->start < $row->end()) {
+      if ($selection_node !== null && $selection_node->end > $row->start() && $selection_node->start < $row->end()) {
         continue;
       }
 

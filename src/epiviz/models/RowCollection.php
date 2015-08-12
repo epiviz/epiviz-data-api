@@ -218,7 +218,7 @@ class RowCollection implements IntervalCollection {
       }
     }
 
-    if (!empty($this->levels) && !empty($lineage_labels)) {
+    if (!empty($this->levels)) {
       foreach ($this->levels as $level => $label) {
         $col_metadata = idx($metadata, $label);
         $this->metadata[$label][] = $col_metadata !== null ? $col_metadata[$i] : null;
@@ -445,7 +445,7 @@ class Row implements Interval {
   public function metadataMap() {
     if ($this->metadataMap == null) {
       $map = array();
-      foreach ($this->rowCollection->values as $col => $metadata_arr) {
+      foreach ($this->rowCollection->values['metadata'] as $col => $metadata_arr) {
         $map[$col] = $metadata_arr[$this->i];
       }
       $this->metadataMap = $map;
