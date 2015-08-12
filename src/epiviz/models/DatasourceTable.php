@@ -120,8 +120,8 @@ class DatasourceTable {
     });
 
     $last_row = $this->rowCollection->last();
-    if ($last_row === null || $last_row->index() < $r[0]) {
-      $this->rowCollection->add($r[0], $r[1], $r[8],
+    if ($last_row === null || $last_row->index() < 0 + $r[0]) {
+      $this->rowCollection->add(0 + $r[0], 0 + $r[1], 0 + $r[8],
         $metadata, explode(',', $r[2]), $r[3]);
     }
 
@@ -130,7 +130,7 @@ class DatasourceTable {
       $row = $this->rowCollection->get($i);
       $values->add(0, $row->index(), $row->start(), $row->end());
     }
-    $values->add($r[5], $r[0], $r[1], $r[8]);
+    $values->add(0 + $r[5], 0 + $r[0], 0 + $r[1], 0 + $r[8]);
   }
 
   /**
