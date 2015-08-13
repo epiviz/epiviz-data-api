@@ -785,7 +785,7 @@ class EpivizApiController {
     $db->beginTransaction();
 
     $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_ROWS));
-    $db->prepare(sprintf('CREATE TEMPORARY TABLE `%1$s` ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE %3$s ORDER BY `index` ASC) ',
+    $db->prepare(sprintf('CREATE TEMPORARY TABLE `%1$s` (PRIMARY KEY (`id`)) ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE %3$s ORDER BY `index` ASC) ',
       EpivizApiController::TEMP_ROWS, EpivizApiController::ROWS_TABLE, $cond))->execute($params);
 
     $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_HIERARCHY));
