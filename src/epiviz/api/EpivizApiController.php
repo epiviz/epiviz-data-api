@@ -789,9 +789,16 @@ class EpivizApiController {
       EpivizApiController::TEMP_ROWS, EpivizApiController::ROWS_TABLE, $cond))->execute($params);
 
     $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_HIERARCHY));
-    $db->query(sprintf(
-      'CREATE TEMPORARY TABLE `%1$s` (PRIMARY KEY (`id`)) ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE `id` IN (SELECT `id` FROM `%3$s`) %4$s) ',
-      EpivizApiController::TEMP_HIERARCHY, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::TEMP_ROWS, $this->nodesOrderBy));
+    // TODO: Test which is the faster one on the production database; currently, on machine running MySQL 5.6.12, the first runs faster
+    // TODO:   On the machine running MySQL 5.1.73, the second one is faster.
+    // $db->query(sprintf(
+    //   'CREATE TEMPORARY TABLE `%1$s` (PRIMARY KEY (`id`)) ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE `id` IN (SELECT `id` FROM `%3$s`) %4$s) ',
+    //   EpivizApiController::TEMP_HIERARCHY, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::TEMP_ROWS, $this->nodesOrderBy));
+
+    $db->prepare(sprintf(
+      'CREATE TEMPORARY TABLE `%1$s` (PRIMARY KEY (`id`)) ENGINE=MEMORY AS (SELECT * FROM `%2$s` WHERE `id` IN (SELECT `id` FROM `%3$s` WHERE %5$s) %4$s) ',
+      EpivizApiController::TEMP_HIERARCHY, EpivizApiController::HIERARCHY_TABLE, EpivizApiController::ROWS_TABLE, $this->nodesOrderBy, $cond))
+      ->execute($params);
 
     $db->query(sprintf('DROP TABLE IF EXISTS `%1$s`', EpivizApiController::TEMP_COLS));
     $db->prepare(sprintf(
