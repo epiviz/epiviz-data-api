@@ -9,7 +9,6 @@ namespace epiviz\utils;
 
 use epiviz\models\Interval;
 use epiviz\models\IntervalCollection;
-use epiviz\models\ReorderedIntervalCollection;
 use epiviz\utils\OrderedIntervalTree\IntervalNode;
 use epiviz\utils\OrderedIntervalTree\SimpleInterval;
 use epiviz\utils\OrderedIntervalTree\IntervalBoundary;
@@ -245,7 +244,7 @@ class OrderedIntervalTree {
         $ordered_indices[] = $i;
       }
     });
-    //return new ReorderedIntervalCollection($intervals, $ordered_indices);
+
     return $ordered_indices;
   }
 

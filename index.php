@@ -121,8 +121,9 @@ $req_controller->registerMethod(
     'values' => 'array'),
   array($api_controller, 'getCombined'),
   array(
-    'request' => 'TODO',
-    'response' => function() use ($api_controller) { return 'TODO';/*$api_controller->getCombined(array('700014391.V35.241827'), 2739, 2742, null, array('2-26'=>0, '2-7db'=>1), array('8-ab4'=>-1));*/ }
+    'request' => 'method=combined&params[start]=0&params[end]=1000&params[partition]=""&params[measurements]=["700014390.V35.241827","700014405.V35.241827","700014413.V35.241827"]&params[selection]={}&params[order]={"5-f0":40}&params[selectedLevels]={"5":2,"6":2,"7":2}',
+    'response' => function() use ($api_controller) {
+      return $api_controller->getCombined(array('700014390.V35.241827','700014405.V35.241827','700014413.V35.241827'), 0, 1000, null, null, true, true, false, array(), array('5-f0' => 40), null, array('5' => 2,'6' => 2,'7' => 2)); }
   ));
 
 $req_controller->registerMethod(

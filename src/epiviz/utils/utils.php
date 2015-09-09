@@ -98,18 +98,8 @@ function signum($val) {
     (($val < 0) ? -1 : 1);
 }
 
-/**
- * TODO: After upgrading to PHP 5.5, switch to the internal boolval
- * @param string|bool $var
- * @return bool
- */
-function boolval($var) {
-  if (is_bool($var)) { return $var; }
-  switch ($var) {
-    case 'true': return true;
-    case 'false': return false;
-    default: throw new InvalidArgumentException('Cannot parse value '.$var);
-  }
+if(!function_exists('boolval')){
+  require('fallback.php');
 }
 
 /**
