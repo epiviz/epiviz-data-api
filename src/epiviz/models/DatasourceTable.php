@@ -30,6 +30,9 @@ class DatasourceTable implements IntervalCollection {
    */
   public $globalStartIndex;
 
+  /**
+   * @var RowCollection
+   */
   private $rowCollection;
   private $valueCollections = array();
 
@@ -278,7 +281,7 @@ class DatasourceTable implements IntervalCollection {
       $last_i = $i + 1;
     }
 
-    if ($selection_node !== null && $selection_node->selectionType === SelectionType::NODE &&
+    if ($n > 0 && $selection_node !== null && $selection_node->selectionType === SelectionType::NODE &&
       $selection_node->end > $start && $selection_node->start < $end) {
       $ret->addAggregate($selection_node, $this->valueCollections, $aggregate_func, $last_i, $i);
     }

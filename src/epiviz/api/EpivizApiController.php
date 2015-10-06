@@ -269,21 +269,39 @@ class EpivizApiController {
     return $nodes;
   }
 
-  private function extractSelectionNodes(array &$nodes, array &$selection=array(), array &$selected_levels=null) {
+  /**
+   * Gets the node selection based on the selection array and selected levels
+   * @param string $node_id
+   * @param int $node_depth
+   * @param array|null $selection
+   * @param array|null $selected_levels
+   * @return int
+   */
+  private function getNodeSelection($node_id, $node_depth, array &$selection=null, array &$selected_levels=null) {
+    // Here, selected_levels had priority:
+    // return idx($selected_levels, $node_depth, idx($selection, $node_id, SelectionType::LEAVES));
+
+    // Here, node selection has priority:
+    return idx($selection, $node_id, idx($selected_levels, $node_depth, SelectionType::LEAVES));
+  }
+  
+  private function extractSelectionNodes(array &$nodes, array $selection=array(), array $selected_levels=null) {
     // Selection
     $selection_nodes = array();
 
     foreach ($nodes as $node) {
-      $node_selection = idx($selected_levels, $node->depth, idx($selection, $node->id, SelectionType::LEAVES));
-      if ($node_selection == SelectionType::LEAVES) {
-        // Discard nodes set to LEAVES
+      $node_selection = $this->getNodeSelection($node->id, $node->depth, $selection, $selected_levels);
+      if (idx($selected_levels, $node->depth, SelectionType::LEAVES) == idx($selection, $node->id, SelectionType::LEAVES)) {
+        // Discard nodes set to the same selection type as the rest of the level
         unset($selection[$node->id]);
         unset($selected_levels[$node->depth]);
-        continue;
       }
 
       $node->selectionType = $node_selection;
-      $selection_nodes[$node->id] = $node;
+      if ($node_selection != SelectionType::LEAVES) {
+        // Nodes with selection set to LEAVES are ignored, since their children are the ones that will be used
+        $selection_nodes[$node->id] = $node;
+      }
     }
 
     // Discard nodes included in larger ranges of ancestors
@@ -332,7 +350,7 @@ class EpivizApiController {
       }
       $index_collapse += $node->nleaves;
 
-      $node_selection = idx($selected_levels, $node->depth, idx($selection, $node_id, SelectionType::LEAVES));
+      $node_selection = $this->getNodeSelection($node_id, $node->depth, $selection, $selected_levels);
       if ($node_selection === SelectionType::NODE) {
         --$index_collapse;
       }
@@ -970,7 +988,8 @@ class EpivizApiController {
       $node = EpivizApiController::createNodeFromDbRecord($r);
       $nodes[$node->id] = $node;
       $id = $node->id;
-      $node->selectionType = idx($selected_levels, $node->depth, idx($selection, $id, SelectionType::LEAVES));
+
+      $node->selectionType = $this->getNodeSelection($id, $node->depth, $selection, $selected_levels);
 
       if ($id == $node_id) {
         $root = $node;
@@ -1000,7 +1019,8 @@ class EpivizApiController {
       $parent = $parents[$root->parentId];
       //$parent = $this->getNodes(array($root->parentId))[$root->parentId];
       $parent->children = array($root);
-      $parent->selectionType = idx($selected_levels, $parent->depth, idx($selection, $parent->id, SelectionType::LEAVES));
+
+      $parent->selectionType = $this->getNodeSelection($parent->id, $parent->depth, $selection, $selected_levels);
     }
 
     return $parent;
@@ -1039,7 +1059,8 @@ class EpivizApiController {
     while (!empty($stmt) && ($r = ($stmt->fetch(PDO::FETCH_NUM))) != false) {
       $node = EpivizApiController::createNodeFromDbRecord($r);
       $id = $node->id;
-      $node->selectionType = idx($selected_levels, $node->depth, idx($selection, $id, SelectionType::LEAVES));
+
+      $node->selectionType = $this->getNodeSelection($id, $node->depth, $selection, $selected_levels);
 
       $node_map[$id] = $node;
 
