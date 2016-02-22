@@ -69,13 +69,13 @@ class EpivizApiController {
       .'(SELECT MIN(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?) AND '
       .'(SELECT MAX(`index`) FROM %1$s WHERE %2$s AND `end` > ? AND `start` < ?)) ';
 
-    $this->rowsQueryFormat = 'SELECT %1$s FROM %2$s WHERE %3$s ORDER BY `index` ASC ';
+    $this->rowsQueryFormat = 'SELECT %1$s FROM %2$s LEFT JOIN `%3$s` ON `%2$s`.`id` = `%3$s`.`id` ';
 
     $this->valsQueryFormat =
-      'SELECT `val`, `%1$s`.`index`, `%1$s`.`start`, `%1$s`.`end` FROM `%1$s` LEFT OUTER JOIN '
-      .'(SELECT `val`, `row`, `col` FROM `%2$s` JOIN `%3$s` ON `col` = `index` WHERE `%3$s`.`id` = ?) vals '
-      .'ON vals.`row` = `%1$s`.`index` '
-      .'WHERE %4$s ORDER BY `%1$s`.`index` ASC ';
+        'SELECT `val`, `%1$s`.`index`, `%1$s`.`start`, `%1$s`.`end` FROM `%1$s` LEFT OUTER JOIN '
+        .'(SELECT `val`, `row`, `col` FROM `%2$s` WHERE '
+        .'`col` = (SELECT `index` FROM `%3$s` WHERE `id` = ?)) vals '
+        .'ON vals.`row` = `%1$s`.`index` ORDER BY `%1$s`.`index` ASC ';
 
     $this->colsQueryFormat =
       'SELECT %1$s FROM %2$s ORDER BY `id` ASC %3$s ';
@@ -475,7 +475,7 @@ class EpivizApiController {
     $db->commit();
 
     // TODO: Do not join with hierarchy table, but also make a temp table
-    $sql = sprintf('SELECT %1$s FROM `%2$s` LEFT JOIN `%3$s` ON `%2$s`.`id` = `%3$s`.`id` ', $fields, EpivizApiController::TEMP_ROWS, EpivizApiController::HIERARCHY_TABLE);
+    $sql = sprintf($this->rowsQueryFormat, $fields, EpivizApiController::TEMP_ROWS, EpivizApiController::HIERARCHY_TABLE);
 
     $stmt = $this->db->prepare($sql);
     $stmt->execute();
@@ -620,12 +620,7 @@ class EpivizApiController {
 
     $db->commit();
 
-    $sql = sprintf(
-      'SELECT `val`, `%1$s`.`index`, `%1$s`.`start`, `%1$s`.`end` FROM `%1$s` LEFT OUTER JOIN '
-      .'(SELECT `val`, `row`, `col` FROM `%2$s` WHERE '
-        .'`col` = (SELECT `index` FROM `%3$s` WHERE `id` = ?)) vals '
-      .'ON vals.`row` = `%1$s`.`index` ORDER BY `%1$s`.`index` ASC ',
-      EpivizApiController::TEMP_ROWS, EpivizApiController::VALUES_TABLE, EpivizApiController::COLS_TABLE);
+    $sql = sprintf($this->valsQueryFormat, EpivizApiController::TEMP_ROWS, EpivizApiController::VALUES_TABLE, EpivizApiController::COLS_TABLE);
 
     $stmt = $this->db->prepare($sql);
     $stmt->execute(array($measurement));
