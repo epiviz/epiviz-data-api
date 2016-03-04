@@ -34,13 +34,13 @@ class EpivizRequestController {
       );
   }
 
-  private function help() {
+  public function help() {
     $methods = array_map(function($def) { return $def['method']; }, $this->methods);
     sort($methods);
     return array('methods' => $methods, 'exampleUsage' => 'method=show&params[method]="help"');
   }
 
-  private function show($method=null) {
+  public function show($method=null) {
     if ($method === null || !array_key_exists($method, $this->methodsMap)) {
       $methods = $this->methods;
       usort($methods, function($m1, $m2) {
